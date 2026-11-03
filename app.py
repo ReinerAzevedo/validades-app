@@ -47,6 +47,9 @@ def atualizar_base_cumulativa(arquivos_upados, caminho_base="base_validades.csv"
 
     df_novo = pd.concat(lista_dfs, ignore_index=True)
     
+    # Remove linhas duplicadas com a mesma Chave_ID (mesmo código e mesma validade)
+    df_novo = df_novo.drop_duplicates(subset=['Chave_ID'], keep='first')
+    
     if os.path.exists(caminho_base):
         df_base = pd.read_csv(caminho_base)
     else:
@@ -74,7 +77,7 @@ def atualizar_base_cumulativa(arquivos_upados, caminho_base="base_validades.csv"
     
     return df_atualizado
 
-# 2. Interface de Upload no Streamlit (Restrição de tipo removida)
+# 2. Interface de Upload no Streamlit
 arquivos = st.file_uploader("Selecione os relatórios exportados do ERP", accept_multiple_files=True)
 
 if arquivos:

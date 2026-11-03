@@ -80,7 +80,6 @@ df_full = st.session_state.df_base
 if not df_full.empty:
     pendentes = df_full[df_full['Status'] == 'Pendente']
     
-    # Exibe apenas os números para não travar a tela
     st.metric("Itens Pendentes de Ação", len(pendentes))
     
     if not pendentes.empty:
@@ -140,4 +139,4 @@ if not df_full.empty:
                         st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_rebaixa
                         st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
                         st.session_state.df_base.at[idx, 'Data_Inicio_Acao'] = data_acao.strftime('%Y-%m-%d')
-                        st.session_state.
+                        st.session_state.df_base.at[idx, 'Status'] = status

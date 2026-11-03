@@ -5,126 +5,106 @@ import os
 st.set_page_config(page_title="Gestão de Validades", layout="wide")
 st.title("📋 Controle de Validades - Loja 10")
 
-# 1. Definir as colunas
-COLUNAS_ERP = [
-    'Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 
-    'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 
-    'Estoque Atual', 'Qtde. Validade', 'Setor de Compra'
-]
-
-COLUNAS_APP = [
-    'Chave_ID', 'Preço_Sistema', 'Preço_Oferta',
-    'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 
-    'Data_Inicio_Acao', 'Status'
-]
-
 CAMINHO_BASE = "base_validades.csv"
+COLUNAS_ERP = ['Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 'Estoque Atual', 'Qtde. Validade', 'Setor de Compra']
+COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status']
 
-def processar_relatorio_bluesoft(arquivo):
-    try:
-        df = pd.read_excel(arquivo, header=27)
-        df = df[COLUNAS_ERP].copy()
-        
-        df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
-        df['Código Interno'] = pd.to_numeric(df['Código Interno'], errors='coerce').fillna(0).astype(int).astype(str)
-        df['Data de Validade'] = pd.to_datetime(df['Data de Validade']).dt.strftime('%Y-%m-%d')
-        df['Chave_ID'] = df['Código Interno'] + "_" + df['Data de Validade']
-        
-        return df
-    except Exception as e:
-        st.error(f"Erro ao ler o arquivo {arquivo.name}. Detalhe: {e}")
-        return pd.DataFrame() 
+# --- OTIMIZAÇÃO 1: CARREGAMENTO EM MEMÓRIA ---
+def carregar_dados():
+    if os.path.exists(CAMINHO_BASE):
+        return pd.read_csv(CAMINHO_BASE)
+    return pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
+
+if 'df_base' not in st.session_state:
+    st.session_state.df_base = carregar_dados()
 
 def atualizar_base_cumulativa(arquivos_upados):
-    lista_dfs = [processar_relatorio_bluesoft(arq) for arq in arquivos_upados]
-    lista_dfs = [df for df in lista_dfs if not df.empty]
-    
-    if not lista_dfs:
-        return None
-
-    df_novo = pd.concat(lista_dfs, ignore_index=True)
-    df_novo = df_novo.drop_duplicates(subset=['Chave_ID'], keep='first')
-    
-    if os.path.exists(CAMINHO_BASE):
-        df_base = pd.read_csv(CAMINHO_BASE)
-    else:
-        df_base = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
-    
-    if 'Chave_ID' in df_base.columns:
-        df_base.set_index('Chave_ID', inplace=True)
-    df_novo.set_index('Chave_ID', inplace=True)
-    
-    for col in df_novo.columns:
-        if col in df_base.columns:
-            df_base[col] = df_base[col].astype(object)
-            df_novo[col] = df_novo[col].astype(object)
+    try:
+        lista_dfs = []
+        for arq in arquivos_upados:
+            df = pd.read_excel(arq, header=27)
+            df = df[COLUNAS_ERP].copy()
+            df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
+            df['Código Interno'] = pd.to_numeric(df['Código Interno'], errors='coerce').fillna(0).astype(int).astype(str)
+            df['Data de Validade'] = pd.to_datetime(df['Data de Validade']).dt.strftime('%Y-%m-%d')
+            df['Chave_ID'] = df['Código Interno'] + "_" + df['Data de Validade']
+            lista_dfs.append(df)
             
-    df_base.update(df_novo)
-    
-    itens_novos = df_novo[~df_novo.index.isin(df_base.index)].copy()
-    for col in COLUNAS_APP:
-        if col not in itens_novos.columns and col != 'Chave_ID':
-            itens_novos[col] = None
-            
-    if not itens_novos.empty:
-        itens_novos['Status'] = 'Pendente'
-    
-    df_atualizado = pd.concat([df_base, itens_novos])
-    df_atualizado.reset_index().to_csv(CAMINHO_BASE, index=False)
-    
-    return df_atualizado
+        if not lista_dfs:
+            return False
 
+        df_novo = pd.concat(lista_dfs, ignore_index=True).drop_duplicates(subset=['Chave_ID'], keep='first')
+        df_base = st.session_state.df_base.copy()
+        
+        if 'Chave_ID' in df_base.columns:
+            df_base.set_index('Chave_ID', inplace=True)
+        df_novo.set_index('Chave_ID', inplace=True)
+        
+        for col in df_novo.columns:
+            if col in df_base.columns:
+                df_base[col] = df_base[col].astype(object)
+                df_novo[col] = df_novo[col].astype(object)
+                
+        df_base.update(df_novo)
+        
+        itens_novos = df_novo[~df_novo.index.isin(df_base.index)].copy()
+        for col in COLUNAS_APP:
+            if col not in itens_novos.columns and col != 'Chave_ID':
+                itens_novos[col] = None
+        if not itens_novos.empty:
+            itens_novos['Status'] = 'Pendente'
+        
+        df_atualizado = pd.concat([df_base, itens_novos]).reset_index()
+        df_atualizado.to_csv(CAMINHO_BASE, index=False)
+        st.session_state.df_base = df_atualizado # Atualiza a memória
+        return True
+    except Exception as e:
+        st.error(f"Erro no processamento: {e}")
+        return False
 
-# --- SEÇÃO 1: UPLOAD (Oculta por padrão para não poluir a tela do smartphone) ---
+# --- SEÇÃO 1: UPLOAD ---
 with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
-    st.write("Faça o upload dos relatórios de validade do Bluesoft.")
     arquivos = st.file_uploader("Selecione os relatórios", accept_multiple_files=True)
-    
-    if arquivos:
-        if st.button("Processar e Atualizar Base"):
-            with st.spinner("Consolidando dados..."):
-                base = atualizar_base_cumulativa(arquivos)
-                if base is not None:
-                    st.success("Base atualizada com sucesso! Pode fechar esta aba.")
-                else:
-                    st.warning("Nenhum dado válido foi encontrado.")
+    if arquivos and st.button("Processar e Atualizar Base"):
+        with st.spinner("Consolidando dados..."):
+            if atualizar_base_cumulativa(arquivos):
+                st.success("Base atualizada! Pode fechar esta aba.")
+                st.rerun()
 
 # --- SEÇÃO 2: AÇÃO NO CHÃO DE LOJA ---
 st.divider()
 st.header("📱 Ação no Chão de Loja")
 
-if os.path.exists(CAMINHO_BASE):
-    df_full = pd.read_csv(CAMINHO_BASE)
-    
-    # Filtra apenas os pendentes para exibir na tela
+df_full = st.session_state.df_base
+
+if not df_full.empty:
     pendentes = df_full[df_full['Status'] == 'Pendente']
     
-    st.subheader(f"Itens Pendentes de Ação: {len(pendentes)}")
+    # Exibe apenas os números para não travar a tela
+    st.metric("Itens Pendentes de Ação", len(pendentes))
     
     if not pendentes.empty:
-        # Tabela resumida para consulta
-        st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade']])
+        # --- OTIMIZAÇÃO 2: TABELA ESCONDIDA ---
+        with st.expander("Ver Tabela Completa (Pode ser lento no celular)"):
+            st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade']])
         
-        # Módulo de Busca/Bipagem
         st.markdown("### 🔍 Localizar Produto")
-        busca = st.text_input("Bipe o GTIN ou digite o Código Interno e aperte Enter (deixe em branco para ver todos):")
+        busca = st.text_input("Bipe o GTIN ou digite o Código Interno:")
         
-        # Filtra a lista de pendentes com base no código digitado/bipado
         if busca:
             busca_limpa = busca.strip()
-            # Máscara para Código Interno
             mask_codigo = pendentes['Código Interno'].astype(str) == busca_limpa
-            # Máscara para GTIN (tratando a quebra '.0' que o pandas cria ao ler do Excel)
             mask_gtin = pendentes['GTIN'].astype(str).str.replace('.0', '', regex=False) == busca_limpa
-            
             pendentes_filtrado = pendentes[mask_codigo | mask_gtin]
         else:
-            pendentes_filtrado = pendentes
+            # --- OTIMIZAÇÃO 3: LIMITE DE EXIBIÇÃO NO SELECTBOX ---
+            pendentes_filtrado = pendentes.head(30)
+            if len(pendentes) > 30:
+                st.caption("Mostrando apenas os 30 itens mais urgentes. Use a busca acima para encontrar outros produtos.")
             
         if pendentes_filtrado.empty:
-            st.warning("Nenhum produto pendente encontrado com este código.")
+            st.warning("Nenhum produto encontrado com este código.")
         else:
-            # Seleção do item filtrado
             opcoes_produtos = pendentes_filtrado['Chave_ID'].astype(str) + " | " + pendentes_filtrado['Descrição'].astype(str)
             produto_selecionado = st.selectbox("Selecione o vencimento para auditar:", opcoes_produtos.tolist())
             
@@ -132,16 +112,13 @@ if os.path.exists(CAMINHO_BASE):
                 chave_atual = produto_selecionado.split(" | ")[0]
                 item_atual = pendentes_filtrado[pendentes_filtrado['Chave_ID'] == chave_atual].iloc[0]
                 
-                st.info(f"**Vencimento ERP:** {item_atual['Data de Validade']} | **Saldo Projetado ERP:** {item_atual['Qtde. Validade']} un")
+                st.info(f"**Vencimento:** {item_atual['Data de Validade']} | **Saldo ERP:** {item_atual['Qtde. Validade']} un")
                 
                 with st.form(key="form_acao"):
                     col1, col2 = st.columns(2)
                     with col1:
-                        # O input já puxa a quantidade projetada do ERP para facilitar
                         qtde_projetada = int(item_atual['Qtde. Validade']) if pd.notna(item_atual['Qtde. Validade']) else 0
                         qtde_real = st.number_input("Qtd Física Real", min_value=0, step=1, value=qtde_projetada)
-                        
-                        # Nova opção "Resolvido - Sem Estoque Físico"
                         acao = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
                     with col2:
                         preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
@@ -151,25 +128,16 @@ if os.path.exists(CAMINHO_BASE):
                     btn_salvar = st.form_submit_button("Salvar Ação")
                     
                     if btn_salvar:
-                        df_atualizar = pd.read_csv(CAMINHO_BASE, index_col="Chave_ID")
-                        
-                        # Automação inteligente: se marcou que não achou o produto, zera a quantidade e conclui a tarefa
                         if acao == "Resolvido - Sem Estoque Físico":
                             qtde_real = 0
                             status_final = "Concluído"
                         else:
                             status_final = "Em Andamento" if acao == "Rebaixa" else "Concluído"
                         
-                        df_atualizar.at[chave_atual, 'Qtde_Real_Vencer'] = qtde_real
-                        df_atualizar.at[chave_atual, 'Preco_Rebaixa'] = preco_rebaixa
-                        df_atualizar.at[chave_atual, 'Acao_Tomada'] = acao
-                        df_atualizar.at[chave_atual, 'Data_Inicio_Acao'] = data_acao.strftime('%Y-%m-%d')
-                        df_atualizar.at[chave_atual, 'Status'] = status_final
-                        
-                        df_atualizar.reset_index().to_csv(CAMINHO_BASE, index_col=False)
-                        st.success("Ação registada com sucesso!")
-                        st.rerun()
-    else:
-        st.success("🎉 Tudo limpo! Não há itens pendentes.")
-else:
-    st.info("A base de dados está vazia. Expanda o menu superior para fazer o upload dos arquivos.")
+                        # Atualiza direto na memória e salva em background
+                        idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == chave_atual].tolist()[0]
+                        st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qtde_real
+                        st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_rebaixa
+                        st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
+                        st.session_state.df_base.at[idx, 'Data_Inicio_Acao'] = data_acao.strftime('%Y-%m-%d')
+                        st.session_state.

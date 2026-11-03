@@ -27,14 +27,17 @@ def processar_relatorio_bluesoft(arquivo):
         
         # Limpeza e formatação
         df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
-        df['Código Interno'] = df['Código Interno'].astype(int).astype(str)
+        
+        # Tratamento robusto para remover casas decimais perdidas do Excel
+        df['Código Interno'] = pd.to_numeric(df['Código Interno'], errors='coerce').fillna(0).astype(int).astype(str)
+        
         df['Data de Validade'] = pd.to_datetime(df['Data de Validade']).dt.strftime('%Y-%m-%d')
         df['Chave_ID'] = df['Código Interno'] + "_" + df['Data de Validade']
         
         return df
     except Exception as e:
         st.error(f"Erro ao ler o arquivo {arquivo.name}. Verifique se é o relatório correto. Detalhe: {e}")
-        return pd.DataFrame() # Retorna vazio para não quebrar o app
+        return pd.DataFrame() 
 
 def atualizar_base_cumulativa(arquivos_upados, caminho_base="base_validades.csv"):
     lista_dfs = [processar_relatorio_bluesoft(arq) for arq in arquivos_upados]
@@ -47,7 +50,7 @@ def atualizar_base_cumulativa(arquivos_upados, caminho_base="base_validades.csv"
 
     df_novo = pd.concat(lista_dfs, ignore_index=True)
     
-    # Remove linhas duplicadas com a mesma Chave_ID (mesmo código e mesma validade)
+    # Remove linhas duplicadas para não gerar o ValueError de indexação
     df_novo = df_novo.drop_duplicates(subset=['Chave_ID'], keep='first')
     
     if os.path.exists(caminho_base):
@@ -59,7 +62,14 @@ def atualizar_base_cumulativa(arquivos_upados, caminho_base="base_validades.csv"
         df_base.set_index('Chave_ID', inplace=True)
     df_novo.set_index('Chave_ID', inplace=True)
     
-    # Atualiza dados existentes e mantém o histórico
+    # === A CORREÇÃO DE TIPOS ESTÁ AQUI ===
+    # Convertendo colunas em comum para "object" para flexibilizar o Update
+    for col in df_novo.columns:
+        if col in df_base.columns:
+            df_base[col] = df_base[col].astype(object)
+            df_novo[col] = df_novo[col].astype(object)
+            
+    # Atualiza dados existentes e mantém o histórico de interações do aplicativo
     df_base.update(df_novo)
     
     # Separa apenas as linhas que são novidade

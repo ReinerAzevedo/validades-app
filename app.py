@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
+from PIL import Image
+from pyzbar.pyzbar import decode
 
 st.set_page_config(page_title="Gestão de Validades", layout="wide")
 st.title("📋 Controle de Validades - Loja 10")
@@ -56,7 +58,7 @@ def atualizar_base_cumulativa(arquivos_upados):
         
         df_atualizado = pd.concat([df_base, itens_novos]).reset_index()
         df_atualizado.to_csv(CAMINHO_BASE, index=False)
-        st.session_state.df_base = df_atualizado # Atualiza a memória
+        st.session_state.df_base = df_atualizado 
         return True
     except Exception as e:
         st.error(f"Erro no processamento: {e}")
@@ -83,27 +85,48 @@ if not df_full.empty:
     st.metric("Itens Pendentes de Ação", len(pendentes))
     
     if not pendentes.empty:
-        # --- OTIMIZAÇÃO 2: TABELA ESCONDIDA ---
         with st.expander("Ver Tabela Completa (Pode ser lento no celular)"):
             st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade']])
         
         st.markdown("### 🔍 Localizar Produto")
-        busca = st.text_input("Bipe o GTIN ou digite o Código Interno:")
         
-        if busca:
-            busca_limpa = busca.strip()
+        # Seleção do método de busca
+        metodo_busca = st.radio("Como deseja buscar o produto?", ["Digitar Código", "Ler Código de Barras (Câmera)"], horizontal=True)
+        
+        busca_limpa = ""
+        
+        # Lógica para Leitor de Câmera ou Digitação
+        if metodo_busca == "Digitar Código":
+            busca = st.text_input("Bipe o GTIN ou digite o Código Interno:")
+            if busca:
+                busca_limpa = busca.strip()
+        else:
+            foto_barras = st.camera_input("Fotografe o Código de Barras do Produto")
+            if foto_barras:
+                with st.spinner("Lendo código..."):
+                    imagem = Image.open(foto_barras)
+                    codigos_lidos = decode(imagem)
+                    
+                    if codigos_lidos:
+                        # Pega o primeiro código lido na imagem
+                        busca_limpa = codigos_lidos[0].data.decode('utf-8')
+                        st.success(f"✅ Código identificado: {busca_limpa}")
+                    else:
+                        st.error("❌ Não foi possível ler o código. Tente focar melhor ou use a opção 'Digitar Código'.")
+        
+        # Filtra a base se encontrou algo
+        if busca_limpa:
             mask_codigo = pendentes['Código Interno'].astype(str) == busca_limpa
             mask_gtin = pendentes['GTIN'].astype(str).str.replace('.0', '', regex=False) == busca_limpa
             pendentes_filtrado = pendentes[mask_codigo | mask_gtin]
         else:
-            # --- OTIMIZAÇÃO 3: LIMITE DE EXIBIÇÃO NO SELECTBOX ---
             pendentes_filtrado = pendentes.head(30)
             if len(pendentes) > 30:
                 st.caption("Mostrando apenas os 30 itens mais urgentes. Use a busca acima para encontrar outros produtos.")
             
-        if pendentes_filtrado.empty:
-            st.warning("Nenhum produto encontrado com este código.")
-        else:
+        if pendentes_filtrado.empty and busca_limpa != "":
+            st.warning("Nenhum produto pendente encontrado com este código.")
+        elif not pendentes_filtrado.empty:
             opcoes_produtos = pendentes_filtrado['Chave_ID'].astype(str) + " | " + pendentes_filtrado['Descrição'].astype(str)
             produto_selecionado = st.selectbox("Selecione o vencimento para auditar:", opcoes_produtos.tolist())
             
@@ -123,7 +146,7 @@ if not df_full.empty:
                         preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
                         data_acao = st.date_input("Data de Início")
                     
-                    foto = st.camera_input("Capturar Imagem (Opcional)")
+                    foto = st.camera_input("Capturar Imagem da Ação (Opcional)")
                     btn_salvar = st.form_submit_button("Salvar Ação")
                     
                     if btn_salvar:
@@ -133,10 +156,17 @@ if not df_full.empty:
                         else:
                             status_final = "Em Andamento" if acao == "Rebaixa" else "Concluído"
                         
-                        # Atualiza direto na memória e salva em background
                         idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == chave_atual].tolist()[0]
                         st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qtde_real
                         st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_rebaixa
                         st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
                         st.session_state.df_base.at[idx, 'Data_Inicio_Acao'] = data_acao.strftime('%Y-%m-%d')
-                        st.session_state.df_base.at[idx, 'Status'] = status
+                        st.session_state.df_base.at[idx, 'Status'] = status_final
+                        
+                        st.session_state.df_base.to_csv(CAMINHO_BASE, index=False)
+                        st.success("Ação registada com sucesso!")
+                        st.rerun()
+    else:
+        st.success("🎉 Tudo limpo! Não há itens pendentes.")
+else:
+    st.info("A base de dados está vazia. Expanda o menu superior para fazer o upload dos arquivos.")

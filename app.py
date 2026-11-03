@@ -75,7 +75,7 @@ def atualizar_base_cumulativa(arquivos_upados):
     return df_atualizado
 
 
-# --- SEÇÃO 1: UPLOAD (Fica dentro de um menu expansível para não poluir o telemóvel) ---
+# --- SEÇÃO 1: UPLOAD (Oculta por padrão para não poluir a tela do smartphone) ---
 with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
     st.write("Faça o upload dos relatórios de validade do Bluesoft.")
     arquivos = st.file_uploader("Selecione os relatórios", accept_multiple_files=True)
@@ -89,7 +89,7 @@ with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
                 else:
                     st.warning("Nenhum dado válido foi encontrado.")
 
-# --- SEÇÃO 2: AÇÃO NO CHÃO DE LOJA (Carrega automaticamente se a base existir) ---
+# --- SEÇÃO 2: AÇÃO NO CHÃO DE LOJA ---
 st.divider()
 st.header("📱 Ação no Chão de Loja")
 
@@ -102,45 +102,73 @@ if os.path.exists(CAMINHO_BASE):
     st.subheader(f"Itens Pendentes de Ação: {len(pendentes)}")
     
     if not pendentes.empty:
-        # Exibe a tabela
-        st.dataframe(pendentes)
+        # Tabela resumida para consulta
+        st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade']])
         
-        # Menu de seleção
-        opcoes_produtos = pendentes['Chave_ID'].astype(str) + " | " + pendentes['Descrição'].astype(str)
-        produto_selecionado = st.selectbox("Selecione o produto para auditar:", opcoes_produtos.tolist())
+        # Módulo de Busca/Bipagem
+        st.markdown("### 🔍 Localizar Produto")
+        busca = st.text_input("Bipe o GTIN ou digite o Código Interno e aperte Enter (deixe em branco para ver todos):")
         
-        if produto_selecionado:
-            chave_atual = produto_selecionado.split(" | ")[0]
-            item_atual = pendentes[pendentes['Chave_ID'] == chave_atual].iloc[0]
+        # Filtra a lista de pendentes com base no código digitado/bipado
+        if busca:
+            busca_limpa = busca.strip()
+            # Máscara para Código Interno
+            mask_codigo = pendentes['Código Interno'].astype(str) == busca_limpa
+            # Máscara para GTIN (tratando a quebra '.0' que o pandas cria ao ler do Excel)
+            mask_gtin = pendentes['GTIN'].astype(str).str.replace('.0', '', regex=False) == busca_limpa
             
-            st.info(f"**Vencimento ERP:** {item_atual['Data de Validade']} | **Saldo ERP:** {item_atual['Qtde. Validade']} un")
+            pendentes_filtrado = pendentes[mask_codigo | mask_gtin]
+        else:
+            pendentes_filtrado = pendentes
             
-            # Formulário isolado
-            with st.form(key="form_acao"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    qtde_real = st.number_input("Qtd Real na Gôndola", min_value=0, step=1)
-                    acao = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK"])
-                with col2:
-                    preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
-                    data_acao = st.date_input("Data de Início")
+        if pendentes_filtrado.empty:
+            st.warning("Nenhum produto pendente encontrado com este código.")
+        else:
+            # Seleção do item filtrado
+            opcoes_produtos = pendentes_filtrado['Chave_ID'].astype(str) + " | " + pendentes_filtrado['Descrição'].astype(str)
+            produto_selecionado = st.selectbox("Selecione o vencimento para auditar:", opcoes_produtos.tolist())
+            
+            if produto_selecionado:
+                chave_atual = produto_selecionado.split(" | ")[0]
+                item_atual = pendentes_filtrado[pendentes_filtrado['Chave_ID'] == chave_atual].iloc[0]
                 
-                foto = st.camera_input("Capturar Imagem (Opcional)")
-                btn_salvar = st.form_submit_button("Salvar Ação")
+                st.info(f"**Vencimento ERP:** {item_atual['Data de Validade']} | **Saldo Projetado ERP:** {item_atual['Qtde. Validade']} un")
                 
-                if btn_salvar:
-                    # Carrega a base limpa para atualizar e salvar
-                    df_atualizar = pd.read_csv(CAMINHO_BASE, index_col="Chave_ID")
+                with st.form(key="form_acao"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        # O input já puxa a quantidade projetada do ERP para facilitar
+                        qtde_projetada = int(item_atual['Qtde. Validade']) if pd.notna(item_atual['Qtde. Validade']) else 0
+                        qtde_real = st.number_input("Qtd Física Real", min_value=0, step=1, value=qtde_projetada)
+                        
+                        # Nova opção "Resolvido - Sem Estoque Físico"
+                        acao = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
+                    with col2:
+                        preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
+                        data_acao = st.date_input("Data de Início")
                     
-                    df_atualizar.at[chave_atual, 'Qtde_Real_Vencer'] = qtde_real
-                    df_atualizar.at[chave_atual, 'Preco_Rebaixa'] = preco_rebaixa
-                    df_atualizar.at[chave_atual, 'Acao_Tomada'] = acao
-                    df_atualizar.at[chave_atual, 'Data_Inicio_Acao'] = data_acao.strftime('%Y-%m-%d')
-                    df_atualizar.at[chave_atual, 'Status'] = "Em Andamento" if acao == "Rebaixa" else "Concluído"
+                    foto = st.camera_input("Capturar Imagem (Opcional)")
+                    btn_salvar = st.form_submit_button("Salvar Ação")
                     
-                    df_atualizar.reset_index().to_csv(CAMINHO_BASE, index_col=False)
-                    st.success("Ação registada com sucesso!")
-                    st.rerun() # Atualiza a tela instantaneamente
+                    if btn_salvar:
+                        df_atualizar = pd.read_csv(CAMINHO_BASE, index_col="Chave_ID")
+                        
+                        # Automação inteligente: se marcou que não achou o produto, zera a quantidade e conclui a tarefa
+                        if acao == "Resolvido - Sem Estoque Físico":
+                            qtde_real = 0
+                            status_final = "Concluído"
+                        else:
+                            status_final = "Em Andamento" if acao == "Rebaixa" else "Concluído"
+                        
+                        df_atualizar.at[chave_atual, 'Qtde_Real_Vencer'] = qtde_real
+                        df_atualizar.at[chave_atual, 'Preco_Rebaixa'] = preco_rebaixa
+                        df_atualizar.at[chave_atual, 'Acao_Tomada'] = acao
+                        df_atualizar.at[chave_atual, 'Data_Inicio_Acao'] = data_acao.strftime('%Y-%m-%d')
+                        df_atualizar.at[chave_atual, 'Status'] = status_final
+                        
+                        df_atualizar.reset_index().to_csv(CAMINHO_BASE, index_col=False)
+                        st.success("Ação registada com sucesso!")
+                        st.rerun()
     else:
         st.success("🎉 Tudo limpo! Não há itens pendentes.")
 else:

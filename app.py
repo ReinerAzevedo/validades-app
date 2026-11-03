@@ -104,3 +104,48 @@ if arquivos:
                 st.dataframe(pendentes)
             else:
                 st.warning("Nenhum dado válido foi encontrado. Verifique os arquivos.")
+                st.divider()
+                st.header("📱 Ação no Chão de Loja")
+                
+                # Cria uma lista amigável para o usuário selecionar o produto pendente
+                opcoes_produtos = pendentes['Chave_ID'].astype(str) + " | " + pendentes['Descrição'].astype(str)
+                produto_selecionado = st.selectbox("Selecione o produto para auditar:", opcoes_produtos.tolist())
+                
+                if produto_selecionado:
+                    # Extrai a Chave_ID da string selecionada
+                    chave_atual = produto_selecionado.split(" | ")[0]
+                    item_atual = pendentes[pendentes['Chave_ID'] == chave_atual].iloc[0]
+                    
+                    st.info(f"**Vencimento ERP:** {item_atual['Data de Validade']} | **Saldo ERP:** {item_atual['Qtde. Validade']} un")
+                    
+                    # Formulário de Ação Rápida
+                    with st.form(key=f"form_acao"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            qtde_real = st.number_input("Qtd Real na Gôndola", min_value=0, step=1)
+                            acao = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK"])
+                        with col2:
+                            preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
+                            data_acao = st.date_input("Data de Início")
+                        
+                        # Ativa a câmera nativa do smartphone
+                        foto = st.camera_input("Capturar Imagem (Opcional)")
+                        
+                        btn_salvar = st.form_submit_button("Salvar Ação")
+                        
+                        if btn_salvar:
+                            # Carrega a base, atualiza os dados inseridos e salva
+                            df_full = pd.read_csv("base_validades.csv", index_col="Chave_ID")
+                            
+                            df_full.at[chave_atual, 'Qtde_Real_Vencer'] = qtde_real
+                            df_full.at[chave_atual, 'Preco_Rebaixa'] = preco_rebaixa
+                            df_full.at[chave_atual, 'Acao_Tomada'] = acao
+                            df_full.at[chave_atual, 'Data_Inicio_Acao'] = data_acao
+                            df_full.at[chave_atual, 'Status'] = "Em Andamento" if acao == "Rebaixa" else "Concluído"
+                            
+                            # (Opcional) A foto fica em memória no objeto 'foto'. 
+                            # Para salvar no disco ou banco, implementaríamos a rotina do Pillow (PIL) aqui.
+                            
+                            df_full.reset_index().to_csv("base_validades.csv", index_col=False)
+                            st.success("Ação registrada com sucesso!")
+                            st.rerun() # Atualiza a tela para remover o item da lista de pendentes

@@ -4,7 +4,7 @@ import os
 
 st.set_page_config(page_title="Gestão de Validades", layout="wide")
 
-# CSS Avançado para Colorir os Botões Exatamente como Pedido
+# CSS Estrutural Avançado (Uso de marcadores adjacentes para forçar a cor)
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
@@ -15,24 +15,34 @@ st.markdown("""
         border-radius: 8px !important;
         font-weight: bold !important;
         border: none !important;
-        padding: 4px 2px !important;
+        padding: 6px 4px !important;
         font-size: 13px !important;
+        width: 100%;
+        transition: 0.2s;
     }
     
-    /* Cores dos Filtros de Validade */
-    div.stButton > button[key="filt_todos"] { background-color: #7f8c8d !important; color: white !important; }
-    div.stButton > button[key="filt_vencidos"] { background-color: #e74c3c !important; color: white !important; }
-    div.stButton > button[key="filt_proximos"] { background-color: #f1c40f !important; color: black !important; }
-    div.stButton > button[key="filt_no_prazo"] { background-color: #3498db !important; color: white !important; }
+    /* Ocultar os blocos dos marcadores HTML invisíveis para não gerar espaços em branco */
+    div.element-container:has(.cor-marcador) {
+        display: none !important;
+    }
     
-    /* Cores das Categorias do Funil */
-    div.stButton > button[key="funil_pendente"] { background-color: #e67e22 !important; color: white !important; } /* Laranja */
-    div.stButton > button[key="funil_conferido"] { background-color: #9b59b6 !important; color: white !important; } /* Roxo */
-    div.stButton > button[key="funil_resolvido"] { background-color: #2ecc71 !important; color: white !important; } /* Verde */
+    /* APLICAÇÃO DAS CORES EXATAS SOLICITADAS */
+    /* Botão Limpar Filtros */
+    div.element-container:has(.btn-limpar) + div.element-container button { background-color: #2c3e50 !important; color: white !important; margin-bottom: 5px; }
     
-    /* Botão Limpar Filtros e FAB (Adicionar) */
-    div.stButton > button[key="btn_limpar"] { background-color: #2c3e50 !important; color: white !important; margin-bottom: 5px; }
-    div.stButton > button[key="btn_add_fab"] {
+    /* Cores das Datas (Vermelho, Amarelo, Azul, Cinzento) */
+    div.element-container:has(.btn-todos) + div.element-container button { background-color: #7f8c8d !important; color: white !important; }
+    div.element-container:has(.btn-vencidos) + div.element-container button { background-color: #e74c3c !important; color: white !important; }
+    div.element-container:has(.btn-proximos) + div.element-container button { background-color: #f1c40f !important; color: black !important; }
+    div.element-container:has(.btn-noprazo) + div.element-container button { background-color: #3498db !important; color: white !important; }
+    
+    /* Cores do Funil (Laranja, Roxo, Verde) */
+    div.element-container:has(.btn-pendentes) + div.element-container button { background-color: #e67e22 !important; color: white !important; }
+    div.element-container:has(.btn-conferidos) + div.element-container button { background-color: #9b59b6 !important; color: white !important; }
+    div.element-container:has(.btn-resolvidos) + div.element-container button { background-color: #2ecc71 !important; color: white !important; }
+    
+    /* Botão Central (FAB) */
+    div.element-container:has(.btn-fab) + div.element-container button {
         background-color: #05cd9e !important;
         color: white !important;
         font-size: 24px !important;
@@ -40,6 +50,9 @@ st.markdown("""
         box-shadow: 0px 4px 10px rgba(5, 205, 158, 0.4) !important;
         height: 50px !important;
     }
+    
+    /* Efeito ao clicar */
+    div.stButton > button:active { opacity: 0.7 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -74,40 +87,48 @@ def salvar_base():
             st.session_state.df_base[col] = st.session_state.df_base[col].astype(object)
     st.session_state.df_base.to_csv(CAMINHO_BASE, index=False)
 
-# Estados Padrão (Todos os dias e Apenas Pendentes)
+# --- ESTADOS PADRÃO (LIMPOS) ---
 if 'filtro_atual' not in st.session_state:
     st.session_state.filtro_atual = "Todos"
 if 'funil_atual' not in st.session_state:
     st.session_state.funil_atual = "1️⃣ Pendentes"
 
-# --- FUNÇÃO DE LIMPAR FILTROS ---
+# --- BOTÃO: LIMPAR FILTROS ---
 col_limpar, col_vazia = st.columns([1, 1])
 with col_limpar:
-    if st.button("🔄 Limpar Filtros", key="btn_limpar", use_container_width=True):
+    st.markdown('<span class="cor-marcador btn-limpar"></span>', unsafe_allow_html=True)
+    if st.button("🔄 Limpar Filtros", use_container_width=True):
         st.session_state.filtro_atual = "Todos"
         st.session_state.funil_atual = "1️⃣ Pendentes"
         st.rerun()
 
-# --- FILTROS DE TEMPO (Coloridos) ---
+# --- FILTROS DE VALIDADE (Cinzento, Vermelho, Amarelo, Azul) ---
 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
-    if st.button("Todos", key="filt_todos", use_container_width=True): st.session_state.filtro_atual = "Todos"
+    st.markdown('<span class="cor-marcador btn-todos"></span>', unsafe_allow_html=True)
+    if st.button("Todos", use_container_width=True): st.session_state.filtro_atual = "Todos"
 with col_f2:
-    if st.button("Vencidos", key="filt_vencidos", use_container_width=True): st.session_state.filtro_atual = "Vencidos"
+    st.markdown('<span class="cor-marcador btn-vencidos"></span>', unsafe_allow_html=True)
+    if st.button("Vencidos", use_container_width=True): st.session_state.filtro_atual = "Vencidos"
 with col_f3:
-    if st.button("Próximos", key="filt_proximos", use_container_width=True): st.session_state.filtro_atual = "Próximos"
+    st.markdown('<span class="cor-marcador btn-proximos"></span>', unsafe_allow_html=True)
+    if st.button("Próximos", use_container_width=True): st.session_state.filtro_atual = "Próximos"
 with col_f4:
-    if st.button("No Prazo", key="filt_no_prazo", use_container_width=True): st.session_state.filtro_atual = "No Prazo"
+    st.markdown('<span class="cor-marcador btn-noprazo"></span>', unsafe_allow_html=True)
+    if st.button("No Prazo", use_container_width=True): st.session_state.filtro_atual = "No Prazo"
 
-# --- CATEGORIAS DO FUNIL OPERACIONAL (Coloridos) ---
+# --- FILTROS DE STATUS / FUNIL (Laranja, Roxo, Verde) ---
 st.write("")
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
-    if st.button("Pendentes", key="funil_pendente", use_container_width=True): st.session_state.funil_atual = "1️⃣ Pendentes"
+    st.markdown('<span class="cor-marcador btn-pendentes"></span>', unsafe_allow_html=True)
+    if st.button("Pendentes", use_container_width=True): st.session_state.funil_atual = "1️⃣ Pendentes"
 with col_c2:
-    if st.button("Conferidos", key="funil_conferido", use_container_width=True): st.session_state.funil_atual = "2️⃣ Conferidos"
+    st.markdown('<span class="cor-marcador btn-conferidos"></span>', unsafe_allow_html=True)
+    if st.button("Conferidos", use_container_width=True): st.session_state.funil_atual = "2️⃣ Conferidos"
 with col_c3:
-    if st.button("Resolvidos", key="funil_resolvido", use_container_width=True): st.session_state.funil_atual = "3️⃣ Resolvidos"
+    st.markdown('<span class="cor-marcador btn-resolvidos"></span>', unsafe_allow_html=True)
+    if st.button("Resolvidos", use_container_width=True): st.session_state.funil_atual = "3️⃣ Resolvidos"
 
 st.markdown(f"Exibindo: **{st.session_state.funil_atual[4:]}** | Validade: **{st.session_state.filtro_atual}**")
 
@@ -120,10 +141,8 @@ if not df_full.empty:
         "3️⃣ Resolvidos": "Resolvido"
     }
     
-    # 1. Filtra pelo Funil
     dados_filtrados = df_full[df_full['Status'] == status_map[st.session_state.funil_atual]]
     
-    # 2. Filtra pela Data (Se não for "Todos")
     hoje = pd.to_datetime('today').normalize()
     dados_filtrados['Data de Validade'] = pd.to_datetime(dados_filtrados['Data de Validade'], errors='coerce')
     
@@ -134,15 +153,16 @@ if not df_full.empty:
     elif st.session_state.filtro_atual == "No Prazo":
         dados_filtrados = dados_filtrados[dados_filtrados['Data de Validade'] > hoje + pd.Timedelta(days=30)]
 
-    # --- BARRA DE BUSCA E BOTÃO ADICIONAR ---
+    # --- BARRA DE BUSCA E BOTÃO ADICIONAR (+) ---
     st.write("")
     col_busca, col_add = st.columns([4, 1])
     with col_busca:
         busca = st.text_input("Busca", placeholder="Bipe o código ou digite a descrição...", label_visibility="collapsed")
     with col_add:
-        add_manual = st.button("➕", key="btn_add_fab", help="Adicionar Novo Produto Manual", use_container_width=True)
+        st.markdown('<span class="cor-marcador btn-fab"></span>', unsafe_allow_html=True)
+        add_manual = st.button("➕", use_container_width=True)
 
-    # Modal Adicionar Manual
+    # Modal Adicionar Produto Manual
     if add_manual:
         st.dialog("➕ Novo Produto Manual")
         with st.form("modal_add"):
@@ -196,15 +216,15 @@ if not df_full.empty:
 
         for index, item in dados_filtrados.iterrows():
             if pd.to_datetime(item['Data de Validade']) < hoje:
-                card_bg = "#c94c4c" # Vermelho
+                card_bg = "#c94c4c"
                 text_color = "white"
                 badge_text = f"Venceu em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
             elif pd.to_datetime(item['Data de Validade']) <= hoje + pd.Timedelta(days=30):
-                card_bg = "#dada47" # Amarelo
+                card_bg = "#dada47"
                 text_color = "black"
                 badge_text = f"Vence em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
             else:
-                card_bg = "#ffffff" # Branco/Azul Claro
+                card_bg = "#ffffff"
                 text_color = "black"
                 badge_text = f"Vence em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
 
@@ -220,7 +240,6 @@ if not df_full.empty:
             </div>
             """, unsafe_allow_html=True)
             
-            # Formulário Oculto em Produtos Resolvidos
             if st.session_state.funil_atual != "3️⃣ Resolvidos":
                 with st.expander(f"Ação para: {item['Código Interno']}"):
                     with st.form(key=f"form_auditar_{item['Chave_ID']}"):

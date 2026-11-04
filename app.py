@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-from PIL import Image
-from pyzbar.pyzbar import decode
 
 st.set_page_config(page_title="Gestão de Validades", layout="wide")
 st.title("📋 Controle de Validades - Loja 10")
@@ -11,7 +9,6 @@ CAMINHO_BASE = "base_validades.csv"
 COLUNAS_ERP = ['Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 'Estoque Atual', 'Qtde. Validade', 'Setor de Compra']
 COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status']
 
-# --- OTIMIZAÇÃO 1: CARREGAMENTO EM MEMÓRIA ---
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
         return pd.read_csv(CAMINHO_BASE)
@@ -64,7 +61,6 @@ def atualizar_base_cumulativa(arquivos_upados):
         st.error(f"Erro no processamento: {e}")
         return False
 
-# --- SEÇÃO 1: UPLOAD ---
 with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
     arquivos = st.file_uploader("Selecione os relatórios", accept_multiple_files=True)
     if arquivos and st.button("Processar e Atualizar Base"):
@@ -73,7 +69,6 @@ with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
                 st.success("Base atualizada! Pode fechar esta aba.")
                 st.rerun()
 
-# --- SEÇÃO 2: AÇÃO NO CHÃO DE LOJA ---
 st.divider()
 st.header("📱 Ação no Chão de Loja")
 
@@ -81,50 +76,28 @@ df_full = st.session_state.df_base
 
 if not df_full.empty:
     pendentes = df_full[df_full['Status'] == 'Pendente']
-    
     st.metric("Itens Pendentes de Ação", len(pendentes))
     
     if not pendentes.empty:
-        with st.expander("Ver Tabela Completa (Pode ser lento no celular)"):
+        with st.expander("Ver Tabela Completa"):
             st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade']])
         
         st.markdown("### 🔍 Localizar Produto")
         
-        # Seleção do método de busca
-        metodo_busca = st.radio("Como deseja buscar o produto?", ["Digitar Código", "Ler Código de Barras (Câmera)"], horizontal=True)
+        # Campo preparado para receber o teclado scanner
+        busca = st.text_input("Bipe o GTIN com o teclado do celular ou digite o Código Interno:")
         
-        busca_limpa = ""
-        
-        # Lógica para Leitor de Câmera ou Digitação
-        if metodo_busca == "Digitar Código":
-            busca = st.text_input("Bipe o GTIN ou digite o Código Interno:")
-            if busca:
-                busca_limpa = busca.strip()
-        else:
-            foto_barras = st.camera_input("Fotografe o Código de Barras do Produto")
-            if foto_barras:
-                with st.spinner("Lendo código..."):
-                    imagem = Image.open(foto_barras)
-                    codigos_lidos = decode(imagem)
-                    
-                    if codigos_lidos:
-                        # Pega o primeiro código lido na imagem
-                        busca_limpa = codigos_lidos[0].data.decode('utf-8')
-                        st.success(f"✅ Código identificado: {busca_limpa}")
-                    else:
-                        st.error("❌ Não foi possível ler o código. Tente focar melhor ou use a opção 'Digitar Código'.")
-        
-        # Filtra a base se encontrou algo
-        if busca_limpa:
+        if busca:
+            busca_limpa = busca.strip()
             mask_codigo = pendentes['Código Interno'].astype(str) == busca_limpa
             mask_gtin = pendentes['GTIN'].astype(str).str.replace('.0', '', regex=False) == busca_limpa
             pendentes_filtrado = pendentes[mask_codigo | mask_gtin]
         else:
             pendentes_filtrado = pendentes.head(30)
             if len(pendentes) > 30:
-                st.caption("Mostrando apenas os 30 itens mais urgentes. Use a busca acima para encontrar outros produtos.")
+                st.caption("Mostrando apenas os 30 itens mais urgentes.")
             
-        if pendentes_filtrado.empty and busca_limpa != "":
+        if pendentes_filtrado.empty and busca != "":
             st.warning("Nenhum produto pendente encontrado com este código.")
         elif not pendentes_filtrado.empty:
             opcoes_produtos = pendentes_filtrado['Chave_ID'].astype(str) + " | " + pendentes_filtrado['Descrição'].astype(str)
@@ -146,7 +119,9 @@ if not df_full.empty:
                         preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
                         data_acao = st.date_input("Data de Início")
                     
-                    foto = st.camera_input("Capturar Imagem da Ação (Opcional)")
+                    # Usa o sistema de arquivos nativo do celular (abre a câmera rapidamente)
+                    foto = st.file_uploader("📸 Capturar Imagem da Ação (Opcional)", type=['jpg', 'jpeg', 'png'])
+                    
                     btn_salvar = st.form_submit_button("Salvar Ação")
                     
                     if btn_salvar:

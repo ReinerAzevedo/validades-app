@@ -2,41 +2,41 @@ import streamlit as st
 import pandas as pd
 import os
 
-# Configuração da página para ocupar todo o ecrã do telemóvel
 st.set_page_config(page_title="Gestão de Validades", layout="wide")
 
-# CSS para o layout móvel profissional (Cards, Filtros Escuros e Botão Adicionar Redondo)
+# CSS Avançado para Colorir os Botões Exatamente como Pedido
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     
-    div.stButton > button[key^="filt_"] {
-        background-color: #0c1a15 !important;
-        color: white !important;
-        border-radius: 20px !important;
-        border: none !important;
-        padding: 4px 10px !important;
-        font-size: 14px !important;
-        width: 100%;
-        font-weight: bold;
-    }
-    
-    div.stButton > button[key^="funil_"] {
-        background-color: white !important;
-        color: #1c1c1c !important;
+    /* Configuração base dos botões */
+    div.stButton > button {
         border-radius: 8px !important;
-        border: 1px solid #ccc !important;
+        font-weight: bold !important;
+        border: none !important;
+        padding: 4px 2px !important;
         font-size: 13px !important;
-        width: 100%;
     }
     
+    /* Cores dos Filtros de Validade */
+    div.stButton > button[key="filt_todos"] { background-color: #7f8c8d !important; color: white !important; }
+    div.stButton > button[key="filt_vencidos"] { background-color: #e74c3c !important; color: white !important; }
+    div.stButton > button[key="filt_proximos"] { background-color: #f1c40f !important; color: black !important; }
+    div.stButton > button[key="filt_no_prazo"] { background-color: #3498db !important; color: white !important; }
+    
+    /* Cores das Categorias do Funil */
+    div.stButton > button[key="funil_pendente"] { background-color: #e67e22 !important; color: white !important; } /* Laranja */
+    div.stButton > button[key="funil_conferido"] { background-color: #9b59b6 !important; color: white !important; } /* Roxo */
+    div.stButton > button[key="funil_resolvido"] { background-color: #2ecc71 !important; color: white !important; } /* Verde */
+    
+    /* Botão Limpar Filtros e FAB (Adicionar) */
+    div.stButton > button[key="btn_limpar"] { background-color: #2c3e50 !important; color: white !important; margin-bottom: 5px; }
     div.stButton > button[key="btn_add_fab"] {
         background-color: #05cd9e !important;
         color: white !important;
         font-size: 24px !important;
         border-radius: 50px !important;
-        border: none !important;
         box-shadow: 0px 4px 10px rgba(5, 205, 158, 0.4) !important;
         height: 50px !important;
     }
@@ -49,7 +49,6 @@ CAMINHO_BASE = "base_validades.csv"
 COLUNAS_ERP = ['Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 'Estoque Atual', 'Qtde. Validade', 'Setor de Compra']
 COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status', 'Origem', 'Data_Conferencia']
 
-# --- FUNÇÕES DE DADOS E MEMÓRIA ---
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
         df = pd.read_csv(CAMINHO_BASE)
@@ -75,93 +74,42 @@ def salvar_base():
             st.session_state.df_base[col] = st.session_state.df_base[col].astype(object)
     st.session_state.df_base.to_csv(CAMINHO_BASE, index=False)
 
-def atualizar_base_cumulativa(arquivos_upados):
-    try:
-        lista_dfs = []
-        for arq in arquivos_upados:
-            df = pd.read_excel(arq, header=27)
-            df = df[COLUNAS_ERP].copy()
-            df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
-            df['Código Interno'] = pd.to_numeric(df['Código Interno'], errors='coerce').fillna(0).astype(int).astype(str)
-            df['Data de Validade'] = pd.to_datetime(df['Data de Validade']).dt.strftime('%Y-%m-%d')
-            df['Chave_ID'] = df['Código Interno'] + "_" + df['Data de Validade']
-            lista_dfs.append(df)
-            
-        if not lista_dfs:
-            return False
-
-        df_novo = pd.concat(lista_dfs, ignore_index=True).drop_duplicates(subset=['Chave_ID'], keep='first')
-        df_base = st.session_state.df_base.copy()
-        
-        if 'Chave_ID' in df_base.columns:
-            df_base.set_index('Chave_ID', inplace=True)
-        df_novo.set_index('Chave_ID', inplace=True)
-        
-        for col in df_novo.columns:
-            if col in df_base.columns:
-                df_base[col] = df_base[col].astype(object)
-                df_novo[col] = df_novo[col].astype(object)
-                
-        df_base.update(df_novo)
-        
-        itens_novos = df_novo[~df_novo.index.isin(df_base.index)].copy()
-        for col in COLUNAS_APP:
-            if col not in itens_novos.columns and col != 'Chave_ID':
-                itens_novos[col] = None
-                
-        if not itens_novos.empty:
-            itens_novos['Status'] = 'Pendente'
-            itens_novos['Origem'] = 'Planilha'
-        
-        df_atualizado = pd.concat([df_base, itens_novos]).reset_index()
-        
-        for col in COLUNAS_APP:
-            if col in df_atualizado.columns:
-                df_atualizado[col] = df_atualizado[col].astype(object)
-                
-        st.session_state.df_base = df_atualizado
-        salvar_base()
-        return True
-    except Exception as e:
-        st.error(f"Erro no processamento: {e}")
-        return False
-
-# Inicialização de Variáveis de Navegação
+# Estados Padrão (Todos os dias e Apenas Pendentes)
 if 'filtro_atual' not in st.session_state:
-    st.session_state.filtro_atual = "Próximos"
+    st.session_state.filtro_atual = "Todos"
 if 'funil_atual' not in st.session_state:
     st.session_state.funil_atual = "1️⃣ Pendentes"
 
-# --- TOP BAR: UPLOAD DO ERP ---
-with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
-    arquivos = st.file_uploader("Relatórios Excel", accept_multiple_files=True)
-    if arquivos and st.button("Carregar Dados"):
-        with st.spinner("Consolidando dados..."):
-            if atualizar_base_cumulativa(arquivos):
-                st.success("Base atualizada com sucesso!")
-                st.rerun()
+# --- FUNÇÃO DE LIMPAR FILTROS ---
+col_limpar, col_vazia = st.columns([1, 1])
+with col_limpar:
+    if st.button("🔄 Limpar Filtros", key="btn_limpar", use_container_width=True):
+        st.session_state.filtro_atual = "Todos"
+        st.session_state.funil_atual = "1️⃣ Pendentes"
+        st.rerun()
 
-# --- FILTROS DE TEMPO ---
-st.caption("Filtros de Validade")
-col_f1, col_f2, col_f3 = st.columns(3)
+# --- FILTROS DE TEMPO (Coloridos) ---
+col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
-    if st.button("Vencidos", key="filt_vencidos"): st.session_state.filtro_atual = "Vencidos"
+    if st.button("Todos", key="filt_todos", use_container_width=True): st.session_state.filtro_atual = "Todos"
 with col_f2:
-    if st.button("Próximos", key="filt_proximos"): st.session_state.filtro_atual = "Próximos"
+    if st.button("Vencidos", key="filt_vencidos", use_container_width=True): st.session_state.filtro_atual = "Vencidos"
 with col_f3:
-    if st.button("Não vencidos", key="filt_nao_vencidos"): st.session_state.filtro_atual = "Não vencidos"
+    if st.button("Próximos", key="filt_proximos", use_container_width=True): st.session_state.filtro_atual = "Próximos"
+with col_f4:
+    if st.button("No Prazo", key="filt_no_prazo", use_container_width=True): st.session_state.filtro_atual = "No Prazo"
 
-# --- CATEGORIAS DO FUNIL OPERACIONAL ---
+# --- CATEGORIAS DO FUNIL OPERACIONAL (Coloridos) ---
 st.write("")
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
-    if st.button("📝 Pendentes", key="funil_pendente"): st.session_state.funil_atual = "1️⃣ Pendentes"
+    if st.button("Pendentes", key="funil_pendente", use_container_width=True): st.session_state.funil_atual = "1️⃣ Pendentes"
 with col_c2:
-    if st.button("⚖️ Conferidos", key="funil_conferido"): st.session_state.funil_atual = "2️⃣ Conferidos"
+    if st.button("Conferidos", key="funil_conferido", use_container_width=True): st.session_state.funil_atual = "2️⃣ Conferidos"
 with col_c3:
-    if st.button("✅ Resolvidos", key="funil_resolvido"): st.session_state.funil_atual = "3️⃣ Resolvidos"
+    if st.button("Resolvidos", key="funil_resolvido", use_container_width=True): st.session_state.funil_atual = "3️⃣ Resolvidos"
 
-st.markdown(f"Exibindo: **{st.session_state.funil_atual}** | Validade: **{st.session_state.filtro_atual}**")
+st.markdown(f"Exibindo: **{st.session_state.funil_atual[4:]}** | Validade: **{st.session_state.filtro_atual}**")
 
 df_full = st.session_state.df_base
 
@@ -172,8 +120,10 @@ if not df_full.empty:
         "3️⃣ Resolvidos": "Resolvido"
     }
     
+    # 1. Filtra pelo Funil
     dados_filtrados = df_full[df_full['Status'] == status_map[st.session_state.funil_atual]]
     
+    # 2. Filtra pela Data (Se não for "Todos")
     hoje = pd.to_datetime('today').normalize()
     dados_filtrados['Data de Validade'] = pd.to_datetime(dados_filtrados['Data de Validade'], errors='coerce')
     
@@ -181,7 +131,7 @@ if not df_full.empty:
         dados_filtrados = dados_filtrados[dados_filtrados['Data de Validade'] < hoje]
     elif st.session_state.filtro_atual == "Próximos":
         dados_filtrados = dados_filtrados[(dados_filtrados['Data de Validade'] >= hoje) & (dados_filtrados['Data de Validade'] <= hoje + pd.Timedelta(days=30))]
-    else:
+    elif st.session_state.filtro_atual == "No Prazo":
         dados_filtrados = dados_filtrados[dados_filtrados['Data de Validade'] > hoje + pd.Timedelta(days=30)]
 
     # --- BARRA DE BUSCA E BOTÃO ADICIONAR ---
@@ -192,7 +142,7 @@ if not df_full.empty:
     with col_add:
         add_manual = st.button("➕", key="btn_add_fab", help="Adicionar Novo Produto Manual", use_container_width=True)
 
-    # Lógica de Adição Manual via Botão Flutuante (Modal)
+    # Modal Adicionar Manual
     if add_manual:
         st.dialog("➕ Novo Produto Manual")
         with st.form("modal_add"):
@@ -246,15 +196,15 @@ if not df_full.empty:
 
         for index, item in dados_filtrados.iterrows():
             if pd.to_datetime(item['Data de Validade']) < hoje:
-                card_bg = "#c94c4c"
+                card_bg = "#c94c4c" # Vermelho
                 text_color = "white"
                 badge_text = f"Venceu em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
             elif pd.to_datetime(item['Data de Validade']) <= hoje + pd.Timedelta(days=30):
-                card_bg = "#dada47"
+                card_bg = "#dada47" # Amarelo
                 text_color = "black"
                 badge_text = f"Vence em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
             else:
-                card_bg = "#ffffff"
+                card_bg = "#ffffff" # Branco/Azul Claro
                 text_color = "black"
                 badge_text = f"Vence em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
 
@@ -262,7 +212,6 @@ if not df_full.empty:
             if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
                 tag_auditoria = f"<br><span style='color: {'#e0e0e0' if card_bg == '#c94c4c' else '#4a4a4a'};'>✅ Auditado em: {item['Data_Conferencia']}</span>"
 
-            # Renderização com Correção Visual (a tag <p> foi mantida numa linha contínua)
             st.markdown(f"""
             <div style="background-color: {card_bg}; color: {text_color}; padding: 15px; border-radius: 10px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                 <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{item['Descrição']}</h4>
@@ -271,7 +220,7 @@ if not df_full.empty:
             </div>
             """, unsafe_allow_html=True)
             
-            # Formulário de Acão Operacional (Oculto em Produtos Resolvidos)
+            # Formulário Oculto em Produtos Resolvidos
             if st.session_state.funil_atual != "3️⃣ Resolvidos":
                 with st.expander(f"Ação para: {item['Código Interno']}"):
                     with st.form(key=f"form_auditar_{item['Chave_ID']}"):
@@ -294,4 +243,4 @@ if not df_full.empty:
     else:
         st.info("Nenhum produto encontrado nesta categoria de filtros.")
 else:
-    st.info("A base de dados encontra-se vazia. Expanda o menu superior para realizar a importação do ficheiro ERP ou adicione produtos manualmente através do botão (+).")
+    st.info("A base de dados encontra-se vazia.")

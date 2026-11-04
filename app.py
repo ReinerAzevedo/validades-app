@@ -6,8 +6,9 @@ st.set_page_config(page_title="Gestão de Validades", layout="wide")
 st.title("📋 Controle de Validades - Loja 10")
 
 CAMINHO_BASE = "base_validades.csv"
+# Adicionada a coluna "Origem" e "Setor de Compra" nativo
 COLUNAS_ERP = ['Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 'Estoque Atual', 'Qtde. Validade', 'Setor de Compra']
-COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status']
+COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status', 'Origem']
 
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
@@ -15,8 +16,12 @@ def carregar_dados():
     else:
         df = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
     
+    # Preenche a origem de produtos antigos que não tinham essa coluna
+    if 'Origem' not in df.columns:
+        df['Origem'] = 'Planilha'
+        
     # FORÇA AS COLUNAS A ACEITAREM TEXTO (OBJECT) PARA EVITAR ERRO DE TIPAGEM
-    for col in COLUNAS_APP:
+    for col in COLUNAS_APP + ['Setor de Compra']:
         if col in df.columns:
             df[col] = df[col].astype(object)
             
@@ -58,12 +63,13 @@ def atualizar_base_cumulativa(arquivos_upados):
         for col in COLUNAS_APP:
             if col not in itens_novos.columns and col != 'Chave_ID':
                 itens_novos[col] = None
+                
         if not itens_novos.empty:
             itens_novos['Status'] = 'Pendente'
+            itens_novos['Origem'] = 'Planilha'
         
         df_atualizado = pd.concat([df_base, itens_novos]).reset_index()
         
-        # Garante que as colunas continuem flexíveis após a mesclagem
         for col in COLUNAS_APP:
             if col in df_atualizado.columns:
                 df_atualizado[col] = df_atualizado[col].astype(object)
@@ -75,7 +81,8 @@ def atualizar_base_cumulativa(arquivos_upados):
         st.error(f"Erro no processamento: {e}")
         return False
 
-with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
+# --- SEÇÃO 1: UPLOAD DE PLANILHAS ---
+with st.expander("📂 Atualizar Base via ERP (Upload)"):
     arquivos = st.file_uploader("Selecione os relatórios", accept_multiple_files=True)
     if arquivos and st.button("Processar e Atualizar Base"):
         with st.spinner("Consolidando dados..."):
@@ -83,6 +90,74 @@ with st.expander("📂 Atualizar Base de Dados (Upload do ERP)"):
                 st.success("Base atualizada! Pode fechar esta aba.")
                 st.rerun()
 
+# --- SEÇÃO 2: ADIÇÃO MANUAL DE PRODUTOS ---
+with st.expander("➕ Adicionar Produto Manual (Fora do Sistema)"):
+    st.info("💡 **Dica para múltiplas validades:** Bipe o produto, preencha os dados e clique em salvar. Depois, basta alterar apenas a data e a quantidade e clicar em salvar novamente para registrar o outro lote!")
+    
+    with st.form("form_manual", clear_on_submit=False):
+        codigo_manual = st.text_input("Bipe o Código de Barras (Teclado) ou digite o Código Interno:")
+        descricao_manual = st.text_input("Descrição do Produto:")
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            validade_manual = st.date_input("Data de Validade")
+            qtde_manual = st.number_input("Quantidade na Gôndola", min_value=1, step=1)
+            preco_atual_manual = st.number_input("Preço Atual (R$)", min_value=0.0, format="%.2f")
+            
+        with col_m2:
+            setor_manual = st.selectbox("Setor", ["Mercearia", "Perecíveis", "Açougue", "Padaria", "FLV", "Outros"])
+            acao_manual = st.selectbox("Ação a Tomar", ["Registrar como Pendente", "Rebaixa", "Descarte", "Troca", "Nenhuma - OK"])
+            preco_rebaixa_manual = st.number_input("Preço Rebaixa (Se houver)", min_value=0.0, format="%.2f")
+            
+        foto_manual = st.file_uploader("📸 Foto (Opcional)", type=['jpg', 'jpeg', 'png'], key="foto_manual")
+        
+        btn_salvar_manual = st.form_submit_button("Salvar Produto na Base")
+        
+        if btn_salvar_manual:
+            if not codigo_manual or not descricao_manual:
+                st.error("⚠️ Código e Descrição são obrigatórios!")
+            else:
+                cod_limpo = codigo_manual.strip()
+                data_val_str = validade_manual.strftime('%Y-%m-%d')
+                chave_manual = f"{cod_limpo}_{data_val_str}"
+                
+                status_final_manual = "Pendente" if acao_manual == "Registrar como Pendente" else ("Em Andamento" if acao_manual == "Rebaixa" else "Concluído")
+                
+                novo_item = {
+                    'Chave_ID': chave_manual,
+                    'Código Interno': cod_limpo,
+                    'GTIN': cod_limpo,
+                    'Descrição': descricao_manual,
+                    'Data de Validade': data_val_str,
+                    'Qtde. Validade': qtde_manual, 
+                    'Qtde_Real_Vencer': qtde_manual,
+                    'Preço_Sistema': preco_atual_manual,
+                    'Preco_Rebaixa': preco_rebaixa_manual,
+                    'Setor de Compra': setor_manual,
+                    'Acao_Tomada': acao_manual if acao_manual != "Registrar como Pendente" else None,
+                    'Status': status_final_manual,
+                    'Origem': 'Manual'
+                }
+                
+                df_nova_linha = pd.DataFrame([novo_item])
+                df_nova_linha.set_index('Chave_ID', inplace=True)
+                
+                df_b = st.session_state.df_base.copy()
+                if 'Chave_ID' in df_b.columns:
+                    df_b.set_index('Chave_ID', inplace=True)
+                
+                # Atualiza se a chave já existir ou anexa no final se for nova
+                if chave_manual in df_b.index:
+                    df_b.update(df_nova_linha)
+                else:
+                    df_b = pd.concat([df_b, df_nova_linha])
+                    
+                df_b.reset_index().to_csv(CAMINHO_BASE, index=False)
+                st.session_state.df_base = carregar_dados() 
+                st.success("✅ Produto adicionado à base com sucesso!")
+                st.rerun()
+
+# --- SEÇÃO 3: AÇÃO NO CHÃO DE LOJA ---
 st.divider()
 st.header("📱 Ação no Chão de Loja")
 
@@ -93,12 +168,13 @@ if not df_full.empty:
     st.metric("Itens Pendentes de Ação", len(pendentes))
     
     if not pendentes.empty:
-        with st.expander("Ver Tabela Completa"):
-            st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade']])
+        with st.expander("Ver Tabela de Pendências"):
+            # Agora mostra a origem para a equipe saber se veio do ERP ou foi digitado
+            st.dataframe(pendentes[['Código Interno', 'Descrição', 'Data de Validade', 'Qtde. Validade', 'Origem']])
         
-        st.markdown("### 🔍 Localizar Produto")
+        st.markdown("### 🔍 Localizar Produto para Auditar")
         
-        busca = st.text_input("Bipe o GTIN com o teclado do telemóvel ou digite o Código:")
+        busca = st.text_input("Bipe o GTIN com o teclado do celular ou digite o Código Interno:")
         
         if busca:
             busca_limpa = busca.strip()
@@ -120,7 +196,8 @@ if not df_full.empty:
                 chave_atual = produto_selecionado.split(" | ")[0]
                 item_atual = pendentes_filtrado[pendentes_filtrado['Chave_ID'] == chave_atual].iloc[0]
                 
-                st.info(f"**Vencimento:** {item_atual['Data de Validade']} | **Saldo ERP:** {item_atual['Qtde. Validade']} un")
+                origem_tag = "🎯 ERP" if item_atual['Origem'] == 'Planilha' else "✋ Manual"
+                st.info(f"**Vencimento:** {item_atual['Data de Validade']} | **Saldo Projetado:** {item_atual['Qtde. Validade']} un | **Origem:** {origem_tag}")
                 
                 with st.form(key="form_acao"):
                     col1, col2 = st.columns(2)
@@ -136,7 +213,6 @@ if not df_full.empty:
                     btn_salvar = st.form_submit_button("Salvar Ação")
                     
                     if btn_salvar:
-                        # Garante a flexibilidade no exato momento de salvar
                         for col in ['Acao_Tomada', 'Status', 'Data_Inicio_Acao']:
                             st.session_state.df_base[col] = st.session_state.df_base[col].astype(object)
 
@@ -159,4 +235,4 @@ if not df_full.empty:
     else:
         st.success("🎉 Tudo limpo! Não há itens pendentes.")
 else:
-    st.info("A base de dados está vazia. Expanda o menu superior para fazer o upload dos arquivos.")
+    st.info("A base de dados está vazia. Expanda o menu superior para fazer o upload dos arquivos ou adicione produtos manualmente.")

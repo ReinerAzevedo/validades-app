@@ -200,7 +200,6 @@ if not df_full.empty:
             ]
 
         for index, item in dados_filtrados.iterrows():
-            # A COR DO CARTÃO AGORA SEGUE O STATUS (Pendente = Laranja, Conferido = Roxo, Resolvido = Verde)
             if item['Status'] == 'Pendente':
                 card_bg = "#e67e22" # Laranja
                 text_color = "white"
@@ -211,7 +210,6 @@ if not df_full.empty:
                 card_bg = "#2ecc71" # Verde
                 text_color = "white"
 
-            # O ALERTA DE DATA AGORA É MOSTRADO NO TEXTO COM UMA BOLINHA COLORIDA
             data_val_item = pd.to_datetime(item['Data de Validade'])
             if data_val_item < hoje:
                 badge_text = f"🔴 Venceu em {data_val_item.strftime('%d/%m/%Y')}"
@@ -241,6 +239,12 @@ if not df_full.empty:
                         foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'])
                         
                         if st.form_submit_button("Confirmar Auditoria"):
+                            
+                            # INTELIGÊNCIA: Se a quantidade for 0, sobrepõe qualquer escolha feita pelo operador.
+                            if qt_real == 0:
+                                acao = "Resolvido - Sem Estoque Físico"
+                                preco_reb = 0.0
+
                             idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
                             st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
                             st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao

@@ -201,19 +201,14 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- NOVO BLOCO DE ADIÇÃO COM PREENCHIMENTO AUTOMÁTICO ---
+    # --- NOVO BLOCO DE ADIÇÃO MANUAL ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
-        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição será preenchida automaticamente. Depois escolha a nova validade e salve!")
+        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição será preenchida automaticamente.")
         
-        # Campo de Código isolado para permitir o acionamento (Enter do Teclado)
         codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (e pressione Enter):")
         
-        desc_padrao = ""
-        preco_padrao = 0.0
-        setor_padrao = "Mercearia"
-        
-        # Inteligência de Busca na Base Histórica
+        desc_padrao, preco_padrao, setor_padrao = "", 0.0, "Mercearia"
         if codigo_manual:
             cod_limpo = codigo_manual.strip()
             df_encontrado = st.session_state.df_base[
@@ -226,37 +221,38 @@ if not df_full.empty:
                 setor_padrao = str(df_encontrado.iloc[0]['Setor de Compra']) if pd.notna(df_encontrado.iloc[0]['Setor de Compra']) else "Mercearia"
                 st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
         
-        # Formulário com os restantes dados
         with st.form("modal_add"):
             descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)
             val_manual = st.date_input("2️⃣ Nova Data de Validade")
-            q_manual = st.number_input("Quantidade (Un)", min_value=1, step=1)
+            q_manual = st.number_input("Quantidade Real (Un)", min_value=0, step=1)
             p_manual = st.number_input("Preço Atual (R$)", min_value=0.0, format="%.2f", value=preco_padrao)
             
             setores = ["Mercearia", "Perecíveis", "Açougue", "Padaria", "FLV", "Outros"]
             idx = setores.index(setor_padrao) if setor_padrao in setores else 0
             setor_m = st.selectbox("Setor", setores, index=idx)
             
-            acao_m = st.selectbox("Ação a Tomar", ["Registrar como Pendente", "Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
+            acao_m = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
             obs_m = st.text_area("Anotações / Observações (Opcional)")
             
             if st.form_submit_button("Gravar Produto na Base"):
                 if codigo_manual and descricao_manual:
                     chave = f"{codigo_manual.strip()}_{val_manual.strftime('%Y-%m-%d')}"
                     
-                    if acao_m == "Registrar como Pendente":
-                        status_m = "Pendente"
-                        data_conf_m = None
+                    # Inteligência: Se preencheu quantidade/ação no cadastro, vai direto para Conferido ou Resolvido
+                    if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
+                        status_m = "Resolvido"
+                        if q_manual == 0: acao_m = "Resolvido - Sem Estoque Físico"
                     else:
-                        status_m = "Resolvido" if acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else "Conferido"
-                        data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                        status_m = "Conferido" # Vai direto para a lista de conferidos gerenciar
+                        
+                    data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
 
                     novo_item = {
                         'Chave_ID': chave, 'Código Interno': codigo_manual.strip(), 'GTIN': codigo_manual.strip(),
                         'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
                         'Qtde. Validade': q_manual, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
-                        'Acao_Tomada': acao_m if acao_m != "Registrar como Pendente" else None,
+                        'Acao_Tomada': acao_m,
                         'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m
                     }
                     
@@ -266,16 +262,15 @@ if not df_full.empty:
                     st.session_state.df_base = df_b
                     salvar_base()
                     
-                    # Esconde o formulário após salvar
                     st.session_state.mostrar_add = False 
-                    st.success("✅ Nova validade adicionada!")
+                    st.success("✅ Produto adicionado e encaminhado para conferência!")
                     st.rerun()
                 else:
                     st.error("Preencha o Código e a Descrição.")
                     
         st.divider()
 
-    # --- LISTAGEM DOS CARDS VISUAIS ---
+    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO (MÚLTIPLAS DATAS) ---
     if not dados_filtrados.empty:
         if busca:
             busca_limpa = busca.strip()
@@ -285,67 +280,71 @@ if not df_full.empty:
                 (dados_filtrados['Descrição'].astype(str).str.contains(busca_limpa, case=False))
             ]
 
-        for index, item in dados_filtrados.iterrows():
-            if item['Status'] == 'Pendente': card_bg, text_color = "#e67e22", "white"
-            elif item['Status'] == 'Conferido': card_bg, text_color = "#9b59b6", "white"
+        # Agrupamento Inteligente por Código Interno para mostrar múltiplas datas num único card expansível
+        codigos_unicos = dados_filtrados['Código Interno'].unique()
+
+        for cod in codigos_unicos:
+            lotes_produto = dados_filtrados[dados_filtrados['Código Interno'].astype(str) == str(cod)]
+            primeiro_item = lotes_produto.iloc[0]
+            
+            # Cor do Card Baseada no Status Geral do Produto
+            status_principal = primeiro_item['Status']
+            if status_principal == 'Pendente': card_bg, text_color = "#e67e22", "white"
+            elif status_principal == 'Conferido': card_bg, text_color = "#9b59b6", "white"
             else: card_bg, text_color = "#2ecc71", "white"
 
-            data_val_item = pd.to_datetime(item['Data de Validade'])
-            if data_val_item < hoje: badge_text = f"🔴 Venceu em {data_val_item.strftime('%d/%m/%Y')}"
-            elif data_val_item <= hoje + pd.Timedelta(days=30): badge_text = f"🟡 Vence em {data_val_item.strftime('%d/%m/%Y')}"
-            else: badge_text = f"🔵 Vence em {data_val_item.strftime('%d/%m/%Y')}"
-
-            tag_auditoria = ""
-            if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
-                tag_auditoria = f"<br><span style='color: #f0f0f0;'>✅ Auditado em: {item['Data_Conferencia']}</span>"
-            
-            tag_obs = ""
-            if pd.notna(item.get('Observacoes')) and item.get('Observacoes'):
-                tag_obs = f"<br><span style='color: #f0f0f0;'>📝 Obs: {str(item['Observacoes'])[:30]}...</span>"
+            # Indicador de Múltiplas Datas
+            total_lotes = len(lotes_produto)
+            badge_lotes = f"📦 **{total_lotes} lote(s) com datas diferentes**" if total_lotes > 1 else f"📅 Vencimento: {pd.to_datetime(primeiro_item['Data de Validade']).strftime('%d/%m/%Y')}"
 
             st.markdown(f"""
             <div style="background-color: {card_bg}; color: {text_color}; padding: 15px; border-radius: 10px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{item['Descrição']}</h4>
-                <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500;">{badge_text}</p>
-                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">Cód: {item['Código Interno']} | Saldo ERP: {item['Qtde. Validade']} un {tag_auditoria} {tag_obs}</p>
+                <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{primeiro_item['Descrição']}</h4>
+                <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500;">{badge_lotes}</p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">Cód: {primeiro_item['Código Interno']} | Setor: {primeiro_item['Setor de Compra']}</p>
             </div>
             """, unsafe_allow_html=True)
             
-            if st.session_state.funil_atual != "3️⃣ Resolvidos":
-                with st.expander(f"Ação para: {item['Código Interno']}"):
-                    with st.form(key=f"form_auditar_{item['Chave_ID']}"):
-                        qt_real = st.number_input("Quantidade Real", value=int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0)
-                        acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
-                        preco_reb = st.number_input("Preço da Rebaixa (R$)", value=0.0)
-                        obs_audit = st.text_area("Anotações / Observações (Opcional)")
-                        foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'])
-                        
-                        if st.form_submit_button("Confirmar Auditoria"):
-                            if qt_real == 0:
-                                acao = "Resolvido - Sem Estoque Físico"
-                                preco_reb = 0.0
+            # Expansor para gerir as múltiplas datas em separado
+            with st.expander(f"🔍 Gerenciar Lotes / Validades ({total_lotes}) para: {primeiro_item['Descrição'][:30]}..."):
+                for _, item in lotes_produto.iterrows():
+                    st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}** | Saldo ERP: {item['Qtde. Validade']} un")
+                    
+                    if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
+                        st.caption(f"✅ Auditado em: {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']} | Qtd Real: {item['Qtde_Real_Vencer']}")
 
-                            idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
-                            st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
-                            st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
-                            st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
-                            st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
-                            st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
-                            st.session_state.df_base.at[idx, 'Data_Conferencia'] = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                    if st.session_state.funil_atual != "3️⃣ Resolvidos":
+                        with st.form(key=f"form_auditar_{item['Chave_ID']}"):
+                            qt_real = st.number_input("Quantidade Real", value=int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
+                            acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"], key=f"ac_{item['Chave_ID']}")
+                            preco_reb = st.number_input("Preço da Rebaixa (R$)", value=0.0, key=f"p_{item['Chave_ID']}")
+                            obs_audit = st.text_area("Anotações / Observações (Opcional)", key=f"ob_{item['Chave_ID']}")
+                            foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'], key=f"ft_{item['Chave_ID']}")
                             
+                            if st.form_submit_button(f"Confirmar Lote {item['Data de Validade']}"):
+                                if qt_real == 0:
+                                    acao = "Resolvido - Sem Estoque Físico"
+                                    preco_reb = 0.0
+
+                                idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                                st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
+                                st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
+                                st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
+                                st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
+                                st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
+                                st.session_state.df_base.at[idx, 'Data_Conferencia'] = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                                
+                                salvar_base()
+                                st.success(f"Lote {item['Data de Validade']} atualizado com sucesso!")
+                                st.rerun()
+                    else:
+                        if st.button(f"↩️ Reativar Lote {item['Data de Validade']}", key=f"reativar_{item['Chave_ID']}", use_container_width=True):
+                            idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                            st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
+                            st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
+                            st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
                             salvar_base()
-                            st.success("Auditoria Registada com Sucesso!")
                             st.rerun()
-            else:
-                with st.expander(f"Reativar produto: {item['Código Interno']}"):
-                    st.markdown('<span class="cor-marcador btn-reativar"></span>', unsafe_allow_html=True)
-                    if st.button(f"↩️ Produto Encontrado (Voltar para Pendentes)", key=f"reativar_{item['Chave_ID']}", use_container_width=True):
-                        idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
-                        st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
-                        st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
-                        st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
-                        salvar_base()
-                        st.rerun()
     else:
         st.info("Nenhum produto encontrado nesta categoria de filtros.")
 else:

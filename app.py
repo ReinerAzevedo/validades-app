@@ -81,6 +81,7 @@ def salvar_base():
 
 if 'filtro_atual' not in st.session_state: st.session_state.filtro_atual = "Todos"
 if 'funil_atual' not in st.session_state: st.session_state.funil_atual = "1️⃣ Pendentes"
+if 'mostrar_add' not in st.session_state: st.session_state.mostrar_add = False
 
 # --- TOP BAR: UPLOAD DO ERP ---
 with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
@@ -90,10 +91,7 @@ with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
 
 # --- TOP BAR: RELATÓRIOS E EXPORTAÇÃO DIÁRIA ---
 with st.expander("📥 Relatórios Diários (Exportar)"):
-    st.write("Exporte a lista de todos os itens conferidos na loja no dia de hoje.")
     hoje_str = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y')
-    
-    # Filtrar os itens que têm a data de conferência de hoje
     if not st.session_state.df_base.empty:
         df_dia = st.session_state.df_base[
             (st.session_state.df_base['Data_Conferencia'].astype(str).str.startswith(hoje_str)) &
@@ -105,7 +103,6 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
         if not df_dia.empty:
             col_ex1, col_ex2 = st.columns(2)
             
-            # Geração Excel
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 df_dia.to_excel(writer, index=False, sheet_name='Validades_Hoje')
@@ -114,67 +111,28 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
             with col_ex1:
                 st.download_button(label="📊 Exportar para Excel", data=excel_data, file_name=f"validades_conferidas_{hoje_str.replace('/','-')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             
-            # Geração HTML Visual
             html_content = f"""
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <style>
-                    body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f9f9f9; color: #333; padding: 20px; }}
-                    .header-relatorio {{ background-color: #0c1a15; color: white; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }}
-                    h2 {{ margin: 0; font-size: 22px; }}
-                    table {{ width: 100%; border-collapse: collapse; background-color: white; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 0 0 8px 8px; overflow: hidden; }}
-                    th, td {{ padding: 12px 15px; text-align: left; border-bottom: 1px solid #e0e0e0; }}
-                    th {{ background-color: #05cd9e; color: white; text-transform: uppercase; font-size: 13px; font-weight: bold; letter-spacing: 0.5px; }}
-                    tr:nth-child(even) {{ background-color: #f2f2f2; }}
-                    tr:hover {{ background-color: #e8f8f5; }}
-                    .codigo {{ font-weight: bold; color: #2c3e50; }}
-                    .descricao {{ font-weight: bold; color: #34495e; font-size: 15px; }}
-                    .qtd {{ font-weight: bold; font-size: 16px; color: #d35400; text-align: center; }}
-                    .acao {{ font-weight: bold; color: #8e44ad; }}
-                    .obs {{ font-style: italic; color: #7f8c8d; font-size: 12px; }}
-                </style>
-            </head>
-            <body>
-                <div class="header-relatorio">
-                    <h2>📋 Relatório de Auditoria de Validades</h2>
-                    <p>Loja 10 - Data: {hoje_str}</p>
-                </div>
-                <table>
-                    <tr>
-                        <th>Código Interno</th>
-                        <th>Descrição do Produto</th>
-                        <th>Vencimento</th>
-                        <th style="text-align:center;">Qtd Física</th>
-                        <th>Ação Tomada</th>
-                        <th>Preço Rebaixa</th>
-                        <th>Observações</th>
-                    </tr>
+            <html><head><meta charset="utf-8"><style>
+                body {{ font-family: 'Segoe UI', sans-serif; background-color: #f9f9f9; padding: 20px; }}
+                .header {{ background-color: #0c1a15; color: white; padding: 20px; text-align: center; }}
+                table {{ width: 100%; border-collapse: collapse; background-color: white; }}
+                th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }}
+                th {{ background-color: #05cd9e; color: white; }}
+                tr:nth-child(even) {{ background-color: #f2f2f2; }}
+                .codigo {{ font-weight: bold; color: #2c3e50; }}
+            </style></head><body>
+            <div class="header"><h2>📋 Relatório de Validades - {hoje_str}</h2></div>
+            <table><tr><th>Código</th><th>Descrição</th><th>Vencimento</th><th>Qtd</th><th>Ação</th><th>Obs</th></tr>
             """
             for _, row in df_dia.iterrows():
                 obs_text = row['Observacoes'] if pd.notna(row['Observacoes']) and row['Observacoes'] else "-"
-                preco_text = f"R$ {float(row['Preco_Rebaixa']):.2f}" if pd.notna(row['Preco_Rebaixa']) and float(row['Preco_Rebaixa']) > 0 else "-"
-                
-                html_content += f"""
-                    <tr>
-                        <td class="codigo">{row['Código Interno']}</td>
-                        <td class="descricao">{row['Descrição']}</td>
-                        <td>{row['Data de Validade']}</td>
-                        <td class="qtd">{row['Qtde_Real_Vencer']}</td>
-                        <td class="acao">{row['Acao_Tomada']}</td>
-                        <td>{preco_text}</td>
-                        <td class="obs">{obs_text}</td>
-                    </tr>
-                """
-            html_content += """
-                </table>
-            </body>
-            </html>
-            """
+                html_content += f"<tr><td class='codigo'>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{obs_text}</td></tr>"
+            html_content += "</table></body></html>"
+            
             with col_ex2:
                 st.download_button(label="🌐 Exportar HTML Visual", data=html_content, file_name=f"relatorio_validades_{hoje_str.replace('/','-')}.html", mime="text/html", use_container_width=True)
         else:
-            st.info("Nenhum item foi auditado e finalizado no dia de hoje.")
+            st.info("Nenhum item finalizado hoje.")
     else:
         st.info("A base de dados está vazia.")
 
@@ -220,14 +178,8 @@ st.markdown(f"Exibindo: **{st.session_state.funil_atual[4:]}** | Validade: **{st
 df_full = st.session_state.df_base
 
 if not df_full.empty:
-    status_map = {
-        "1️⃣ Pendentes": "Pendente",
-        "2️⃣ Conferidos": "Conferido",
-        "3️⃣ Resolvidos": "Resolvido"
-    }
-    
+    status_map = {"1️⃣ Pendentes": "Pendente", "2️⃣ Conferidos": "Conferido", "3️⃣ Resolvidos": "Resolvido"}
     dados_filtrados = df_full[df_full['Status'] == status_map[st.session_state.funil_atual]]
-    
     hoje = pd.to_datetime('today').normalize()
     dados_filtrados['Data de Validade'] = pd.to_datetime(dados_filtrados['Data de Validade'], errors='coerce')
     
@@ -245,17 +197,46 @@ if not df_full.empty:
         busca = st.text_input("Busca", placeholder="Bipe o código ou digite a descrição...", label_visibility="collapsed")
     with col_add:
         st.markdown('<span class="cor-marcador btn-fab"></span>', unsafe_allow_html=True)
-        add_manual = st.button("➕", use_container_width=True)
+        if st.button("➕", use_container_width=True):
+            st.session_state.mostrar_add = not st.session_state.mostrar_add
+            st.rerun()
 
-    if add_manual:
-        st.dialog("➕ Novo Produto Manual")
+    # --- NOVO BLOCO DE ADIÇÃO COM PREENCHIMENTO AUTOMÁTICO ---
+    if st.session_state.mostrar_add:
+        st.markdown("### ➕ Adicionar Nova Validade ou Produto")
+        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição será preenchida automaticamente. Depois escolha a nova validade e salve!")
+        
+        # Campo de Código isolado para permitir o acionamento (Enter do Teclado)
+        codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (e pressione Enter):")
+        
+        desc_padrao = ""
+        preco_padrao = 0.0
+        setor_padrao = "Mercearia"
+        
+        # Inteligência de Busca na Base Histórica
+        if codigo_manual:
+            cod_limpo = codigo_manual.strip()
+            df_encontrado = st.session_state.df_base[
+                (st.session_state.df_base['Código Interno'].astype(str) == cod_limpo) | 
+                (st.session_state.df_base['GTIN'].astype(str).str.replace('.0', '', regex=False) == cod_limpo)
+            ]
+            if not df_encontrado.empty:
+                desc_padrao = str(df_encontrado.iloc[0]['Descrição'])
+                preco_padrao = float(df_encontrado.iloc[0]['Preço_Sistema']) if pd.notna(df_encontrado.iloc[0]['Preço_Sistema']) else 0.0
+                setor_padrao = str(df_encontrado.iloc[0]['Setor de Compra']) if pd.notna(df_encontrado.iloc[0]['Setor de Compra']) else "Mercearia"
+                st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
+        
+        # Formulário com os restantes dados
         with st.form("modal_add"):
-            codigo_manual = st.text_input("Código de Barras:")
-            descricao_manual = st.text_input("Descrição do Produto:")
-            val_manual = st.date_input("Data de Validade")
+            descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)
+            val_manual = st.date_input("2️⃣ Nova Data de Validade")
             q_manual = st.number_input("Quantidade (Un)", min_value=1, step=1)
-            p_manual = st.number_input("Preço Atual (R$)", min_value=0.0, format="%.2f")
-            setor_m = st.selectbox("Setor", ["Mercearia", "Perecíveis", "Açougue", "Padaria", "FLV", "Outros"])
+            p_manual = st.number_input("Preço Atual (R$)", min_value=0.0, format="%.2f", value=preco_padrao)
+            
+            setores = ["Mercearia", "Perecíveis", "Açougue", "Padaria", "FLV", "Outros"]
+            idx = setores.index(setor_padrao) if setor_padrao in setores else 0
+            setor_m = st.selectbox("Setor", setores, index=idx)
+            
             acao_m = st.selectbox("Ação a Tomar", ["Registrar como Pendente", "Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
             obs_m = st.text_area("Anotações / Observações (Opcional)")
             
@@ -276,8 +257,7 @@ if not df_full.empty:
                         'Qtde. Validade': q_manual, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
                         'Acao_Tomada': acao_m if acao_m != "Registrar como Pendente" else None,
-                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m,
-                        'Observacoes': obs_m
+                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m
                     }
                     
                     df_nova_linha = pd.DataFrame([novo_item]).set_index('Chave_ID')
@@ -285,10 +265,15 @@ if not df_full.empty:
                     df_b = pd.concat([df_b, df_nova_linha]).reset_index()
                     st.session_state.df_base = df_b
                     salvar_base()
-                    st.success("✅ Produto Adicionado!")
+                    
+                    # Esconde o formulário após salvar
+                    st.session_state.mostrar_add = False 
+                    st.success("✅ Nova validade adicionada!")
                     st.rerun()
                 else:
                     st.error("Preencha o Código e a Descrição.")
+                    
+        st.divider()
 
     # --- LISTAGEM DOS CARDS VISUAIS ---
     if not dados_filtrados.empty:
@@ -301,23 +286,14 @@ if not df_full.empty:
             ]
 
         for index, item in dados_filtrados.iterrows():
-            if item['Status'] == 'Pendente':
-                card_bg = "#e67e22" 
-                text_color = "white"
-            elif item['Status'] == 'Conferido':
-                card_bg = "#9b59b6" 
-                text_color = "white"
-            else:
-                card_bg = "#2ecc71" 
-                text_color = "white"
+            if item['Status'] == 'Pendente': card_bg, text_color = "#e67e22", "white"
+            elif item['Status'] == 'Conferido': card_bg, text_color = "#9b59b6", "white"
+            else: card_bg, text_color = "#2ecc71", "white"
 
             data_val_item = pd.to_datetime(item['Data de Validade'])
-            if data_val_item < hoje:
-                badge_text = f"🔴 Venceu em {data_val_item.strftime('%d/%m/%Y')}"
-            elif data_val_item <= hoje + pd.Timedelta(days=30):
-                badge_text = f"🟡 Vence em {data_val_item.strftime('%d/%m/%Y')}"
-            else:
-                badge_text = f"🔵 Vence em {data_val_item.strftime('%d/%m/%Y')}"
+            if data_val_item < hoje: badge_text = f"🔴 Venceu em {data_val_item.strftime('%d/%m/%Y')}"
+            elif data_val_item <= hoje + pd.Timedelta(days=30): badge_text = f"🟡 Vence em {data_val_item.strftime('%d/%m/%Y')}"
+            else: badge_text = f"🔵 Vence em {data_val_item.strftime('%d/%m/%Y')}"
 
             tag_auditoria = ""
             if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):

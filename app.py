@@ -136,6 +136,25 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
     else:
         st.info("A base de dados está vazia.")
 
+# --- CÁLCULO DOS TOTAIS PARA OS BOTÕES ---
+df_base_calc = st.session_state.df_base.copy()
+if not df_base_calc.empty:
+    df_base_calc['Data de Validade'] = pd.to_datetime(df_base_calc['Data de Validade'], errors='coerce')
+    hoje = pd.to_datetime('today').normalize()
+    
+    # Totais de Funil
+    tot_pendentes = len(df_base_calc[df_base_calc['Status'] == 'Pendente'])
+    tot_conferidos = len(df_base_calc[df_base_calc['Status'] == 'Conferido'])
+    tot_resolvidos = len(df_base_calc[df_base_calc['Status'] == 'Resolvido'])
+    
+    # Totais de Validade
+    tot_todos = len(df_base_calc)
+    tot_vencidos = len(df_base_calc[df_base_calc['Data de Validade'] < hoje])
+    tot_proximos = len(df_base_calc[(df_base_calc['Data de Validade'] >= hoje) & (df_base_calc['Data de Validade'] <= hoje + pd.Timedelta(days=30))])
+    tot_noprazo = len(df_base_calc[df_base_calc['Data de Validade'] > hoje + pd.Timedelta(days=30)])
+else:
+    tot_pendentes = tot_conferidos = tot_resolvidos = tot_todos = tot_vencidos = tot_proximos = tot_noprazo = 0
+
 # --- BOTÃO: LIMPAR FILTROS ---
 col_limpar, col_vazia = st.columns([1, 1])
 with col_limpar:
@@ -145,33 +164,33 @@ with col_limpar:
         st.session_state.funil_atual = "1️⃣ Pendentes"
         st.rerun()
 
-# --- FILTROS DE VALIDADE ---
+# --- FILTROS DE VALIDADE COM TOTAIS ---
 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
     st.markdown('<span class="cor-marcador btn-todos"></span>', unsafe_allow_html=True)
-    if st.button("Todos", use_container_width=True): st.session_state.filtro_atual = "Todos"
+    if st.button(f"Todos ({tot_todos})", use_container_width=True): st.session_state.filtro_atual = "Todos"
 with col_f2:
     st.markdown('<span class="cor-marcador btn-vencidos"></span>', unsafe_allow_html=True)
-    if st.button("Vencidos", use_container_width=True): st.session_state.filtro_atual = "Vencidos"
+    if st.button(f"Vencidos ({tot_vencidos})", use_container_width=True): st.session_state.filtro_atual = "Vencidos"
 with col_f3:
     st.markdown('<span class="cor-marcador btn-proximos"></span>', unsafe_allow_html=True)
-    if st.button("Próximos", use_container_width=True): st.session_state.filtro_atual = "Próximos"
+    if st.button(f"Próximos ({tot_proximos})", use_container_width=True): st.session_state.filtro_atual = "Próximos"
 with col_f4:
     st.markdown('<span class="cor-marcador btn-noprazo"></span>', unsafe_allow_html=True)
-    if st.button("No Prazo", use_container_width=True): st.session_state.filtro_atual = "No Prazo"
+    if st.button(f"No Prazo ({tot_noprazo})", use_container_width=True): st.session_state.filtro_atual = "No Prazo"
 
-# --- FILTROS DE STATUS / FUNIL ---
+# --- FILTROS DE STATUS / FUNIL COM TOTAIS ---
 st.write("")
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
     st.markdown('<span class="cor-marcador btn-pendentes"></span>', unsafe_allow_html=True)
-    if st.button("Pendentes", use_container_width=True): st.session_state.funil_atual = "1️⃣ Pendentes"
+    if st.button(f"Pendentes ({tot_pendentes})", use_container_width=True): st.session_state.funil_atual = "1️⃣ Pendentes"
 with col_c2:
     st.markdown('<span class="cor-marcador btn-conferidos"></span>', unsafe_allow_html=True)
-    if st.button("Conferidos", use_container_width=True): st.session_state.funil_atual = "2️⃣ Conferidos"
+    if st.button(f"Conferidos ({tot_conferidos})", use_container_width=True): st.session_state.funil_atual = "2️⃣ Conferidos"
 with col_c3:
     st.markdown('<span class="cor-marcador btn-resolvidos"></span>', unsafe_allow_html=True)
-    if st.button("Resolvidos", use_container_width=True): st.session_state.funil_atual = "3️⃣ Resolvidos"
+    if st.button(f"Resolvidos ({tot_resolvidos})", use_container_width=True): st.session_state.funil_atual = "3️⃣ Resolvidos"
 
 st.markdown(f"Exibindo: **{st.session_state.funil_atual[4:]}** | Validade: **{st.session_state.filtro_atual}**")
 
@@ -238,12 +257,11 @@ if not df_full.empty:
                 if codigo_manual and descricao_manual:
                     chave = f"{codigo_manual.strip()}_{val_manual.strftime('%Y-%m-%d')}"
                     
-                    # Inteligência: Se preencheu quantidade/ação no cadastro, vai direto para Conferido ou Resolvido
                     if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
                         status_m = "Resolvido"
                         if q_manual == 0: acao_m = "Resolvido - Sem Estoque Físico"
                     else:
-                        status_m = "Conferido" # Vai direto para a lista de conferidos gerenciar
+                        status_m = "Conferido"
                         
                     data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
 
@@ -270,7 +288,7 @@ if not df_full.empty:
                     
         st.divider()
 
-    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO (MÚLTIPLAS DATAS) ---
+    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO ---
     if not dados_filtrados.empty:
         if busca:
             busca_limpa = busca.strip()
@@ -280,20 +298,17 @@ if not df_full.empty:
                 (dados_filtrados['Descrição'].astype(str).str.contains(busca_limpa, case=False))
             ]
 
-        # Agrupamento Inteligente por Código Interno para mostrar múltiplas datas num único card expansível
         codigos_unicos = dados_filtrados['Código Interno'].unique()
 
         for cod in codigos_unicos:
             lotes_produto = dados_filtrados[dados_filtrados['Código Interno'].astype(str) == str(cod)]
             primeiro_item = lotes_produto.iloc[0]
             
-            # Cor do Card Baseada no Status Geral do Produto
             status_principal = primeiro_item['Status']
             if status_principal == 'Pendente': card_bg, text_color = "#e67e22", "white"
             elif status_principal == 'Conferido': card_bg, text_color = "#9b59b6", "white"
             else: card_bg, text_color = "#2ecc71", "white"
 
-            # Indicador de Múltiplas Datas
             total_lotes = len(lotes_produto)
             badge_lotes = f"📦 **{total_lotes} lote(s) com datas diferentes**" if total_lotes > 1 else f"📅 Vencimento: {pd.to_datetime(primeiro_item['Data de Validade']).strftime('%d/%m/%Y')}"
 
@@ -305,7 +320,6 @@ if not df_full.empty:
             </div>
             """, unsafe_allow_html=True)
             
-            # Expansor para gerir as múltiplas datas em separado
             with st.expander(f"🔍 Gerenciar Lotes / Validades ({total_lotes}) para: {primeiro_item['Descrição'][:30]}..."):
                 for _, item in lotes_produto.iterrows():
                     st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}** | Saldo ERP: {item['Qtde. Validade']} un")

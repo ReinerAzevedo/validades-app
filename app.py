@@ -35,6 +35,9 @@ st.markdown("""
     div.element-container:has(.btn-conferidos) + div.element-container button { background-color: #9b59b6 !important; color: white !important; }
     div.element-container:has(.btn-resolvidos) + div.element-container button { background-color: #2ecc71 !important; color: white !important; }
     
+    /* Novo Botão de Reativar */
+    div.element-container:has(.btn-reativar) + div.element-container button { background-color: #e67e22 !important; color: white !important; border: 1px solid #d35400 !important; }
+    
     div.element-container:has(.btn-fab) + div.element-container button {
         background-color: #05cd9e !important;
         color: white !important;
@@ -201,13 +204,13 @@ if not df_full.empty:
 
         for index, item in dados_filtrados.iterrows():
             if item['Status'] == 'Pendente':
-                card_bg = "#e67e22" # Laranja
+                card_bg = "#e67e22" 
                 text_color = "white"
             elif item['Status'] == 'Conferido':
-                card_bg = "#9b59b6" # Roxo
+                card_bg = "#9b59b6" 
                 text_color = "white"
             else:
-                card_bg = "#2ecc71" # Verde
+                card_bg = "#2ecc71" 
                 text_color = "white"
 
             data_val_item = pd.to_datetime(item['Data de Validade'])
@@ -230,6 +233,7 @@ if not df_full.empty:
             </div>
             """, unsafe_allow_html=True)
             
+            # Se for Pendente ou Conferido, exibe o Formulário de Auditoria Normal
             if st.session_state.funil_atual != "3️⃣ Resolvidos":
                 with st.expander(f"Ação para: {item['Código Interno']}"):
                     with st.form(key=f"form_auditar_{item['Chave_ID']}"):
@@ -239,8 +243,6 @@ if not df_full.empty:
                         foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'])
                         
                         if st.form_submit_button("Confirmar Auditoria"):
-                            
-                            # INTELIGÊNCIA: Se a quantidade for 0, sobrepõe qualquer escolha feita pelo operador.
                             if qt_real == 0:
                                 acao = "Resolvido - Sem Estoque Físico"
                                 preco_reb = 0.0
@@ -255,6 +257,18 @@ if not df_full.empty:
                             salvar_base()
                             st.success("Auditoria Registada com Sucesso!")
                             st.rerun()
+                            
+            # Se for Resolvido, exibe o Botão de Reativação
+            else:
+                with st.expander(f"Reativar produto: {item['Código Interno']}"):
+                    st.markdown('<span class="cor-marcador btn-reativar"></span>', unsafe_allow_html=True)
+                    if st.button(f"↩️ Produto Encontrado (Voltar para Pendentes)", key=f"reativar_{item['Chave_ID']}", use_container_width=True):
+                        idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                        st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
+                        st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
+                        st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
+                        salvar_base()
+                        st.rerun()
     else:
         st.info("Nenhum produto encontrado nesta categoria de filtros.")
 else:

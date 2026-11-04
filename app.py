@@ -4,13 +4,12 @@ import os
 
 st.set_page_config(page_title="Gestão de Validades", layout="wide")
 
-# CSS Estrutural Avançado (Uso de marcadores adjacentes para forçar a cor)
+# CSS Estrutural Avançado
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Configuração base dos botões */
     div.stButton > button {
         border-radius: 8px !important;
         font-weight: bold !important;
@@ -21,27 +20,21 @@ st.markdown("""
         transition: 0.2s;
     }
     
-    /* Ocultar os blocos dos marcadores HTML invisíveis para não gerar espaços em branco */
     div.element-container:has(.cor-marcador) {
         display: none !important;
     }
     
-    /* APLICAÇÃO DAS CORES EXATAS SOLICITADAS */
-    /* Botão Limpar Filtros */
     div.element-container:has(.btn-limpar) + div.element-container button { background-color: #2c3e50 !important; color: white !important; margin-bottom: 5px; }
     
-    /* Cores das Datas (Vermelho, Amarelo, Azul, Cinzento) */
     div.element-container:has(.btn-todos) + div.element-container button { background-color: #7f8c8d !important; color: white !important; }
     div.element-container:has(.btn-vencidos) + div.element-container button { background-color: #e74c3c !important; color: white !important; }
     div.element-container:has(.btn-proximos) + div.element-container button { background-color: #f1c40f !important; color: black !important; }
     div.element-container:has(.btn-noprazo) + div.element-container button { background-color: #3498db !important; color: white !important; }
     
-    /* Cores do Funil (Laranja, Roxo, Verde) */
     div.element-container:has(.btn-pendentes) + div.element-container button { background-color: #e67e22 !important; color: white !important; }
     div.element-container:has(.btn-conferidos) + div.element-container button { background-color: #9b59b6 !important; color: white !important; }
     div.element-container:has(.btn-resolvidos) + div.element-container button { background-color: #2ecc71 !important; color: white !important; }
     
-    /* Botão Central (FAB) */
     div.element-container:has(.btn-fab) + div.element-container button {
         background-color: #05cd9e !important;
         color: white !important;
@@ -51,7 +44,6 @@ st.markdown("""
         height: 50px !important;
     }
     
-    /* Efeito ao clicar */
     div.stButton > button:active { opacity: 0.7 !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -87,13 +79,11 @@ def salvar_base():
             st.session_state.df_base[col] = st.session_state.df_base[col].astype(object)
     st.session_state.df_base.to_csv(CAMINHO_BASE, index=False)
 
-# --- ESTADOS PADRÃO (LIMPOS) ---
 if 'filtro_atual' not in st.session_state:
     st.session_state.filtro_atual = "Todos"
 if 'funil_atual' not in st.session_state:
     st.session_state.funil_atual = "1️⃣ Pendentes"
 
-# --- BOTÃO: LIMPAR FILTROS ---
 col_limpar, col_vazia = st.columns([1, 1])
 with col_limpar:
     st.markdown('<span class="cor-marcador btn-limpar"></span>', unsafe_allow_html=True)
@@ -102,7 +92,6 @@ with col_limpar:
         st.session_state.funil_atual = "1️⃣ Pendentes"
         st.rerun()
 
-# --- FILTROS DE VALIDADE (Cinzento, Vermelho, Amarelo, Azul) ---
 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
     st.markdown('<span class="cor-marcador btn-todos"></span>', unsafe_allow_html=True)
@@ -117,7 +106,6 @@ with col_f4:
     st.markdown('<span class="cor-marcador btn-noprazo"></span>', unsafe_allow_html=True)
     if st.button("No Prazo", use_container_width=True): st.session_state.filtro_atual = "No Prazo"
 
-# --- FILTROS DE STATUS / FUNIL (Laranja, Roxo, Verde) ---
 st.write("")
 col_c1, col_c2, col_c3 = st.columns(3)
 with col_c1:
@@ -153,7 +141,6 @@ if not df_full.empty:
     elif st.session_state.filtro_atual == "No Prazo":
         dados_filtrados = dados_filtrados[dados_filtrados['Data de Validade'] > hoje + pd.Timedelta(days=30)]
 
-    # --- BARRA DE BUSCA E BOTÃO ADICIONAR (+) ---
     st.write("")
     col_busca, col_add = st.columns([4, 1])
     with col_busca:
@@ -162,7 +149,6 @@ if not df_full.empty:
         st.markdown('<span class="cor-marcador btn-fab"></span>', unsafe_allow_html=True)
         add_manual = st.button("➕", use_container_width=True)
 
-    # Modal Adicionar Produto Manual
     if add_manual:
         st.dialog("➕ Novo Produto Manual")
         with st.form("modal_add"):
@@ -204,7 +190,6 @@ if not df_full.empty:
                 else:
                     st.error("Preencha o Código e a Descrição.")
 
-    # --- LISTAGEM DOS CARDS VISUAIS ---
     if not dados_filtrados.empty:
         if busca:
             busca_limpa = busca.strip()
@@ -215,28 +200,35 @@ if not df_full.empty:
             ]
 
         for index, item in dados_filtrados.iterrows():
-            if pd.to_datetime(item['Data de Validade']) < hoje:
-                card_bg = "#c94c4c"
+            # A COR DO CARTÃO AGORA SEGUE O STATUS (Pendente = Laranja, Conferido = Roxo, Resolvido = Verde)
+            if item['Status'] == 'Pendente':
+                card_bg = "#e67e22" # Laranja
                 text_color = "white"
-                badge_text = f"Venceu em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
-            elif pd.to_datetime(item['Data de Validade']) <= hoje + pd.Timedelta(days=30):
-                card_bg = "#dada47"
-                text_color = "black"
-                badge_text = f"Vence em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
+            elif item['Status'] == 'Conferido':
+                card_bg = "#9b59b6" # Roxo
+                text_color = "white"
             else:
-                card_bg = "#ffffff"
-                text_color = "black"
-                badge_text = f"Vence em {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}"
+                card_bg = "#2ecc71" # Verde
+                text_color = "white"
+
+            # O ALERTA DE DATA AGORA É MOSTRADO NO TEXTO COM UMA BOLINHA COLORIDA
+            data_val_item = pd.to_datetime(item['Data de Validade'])
+            if data_val_item < hoje:
+                badge_text = f"🔴 Venceu em {data_val_item.strftime('%d/%m/%Y')}"
+            elif data_val_item <= hoje + pd.Timedelta(days=30):
+                badge_text = f"🟡 Vence em {data_val_item.strftime('%d/%m/%Y')}"
+            else:
+                badge_text = f"🔵 Vence em {data_val_item.strftime('%d/%m/%Y')}"
 
             tag_auditoria = ""
             if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
-                tag_auditoria = f"<br><span style='color: {'#e0e0e0' if card_bg == '#c94c4c' else '#4a4a4a'};'>✅ Auditado em: {item['Data_Conferencia']}</span>"
+                tag_auditoria = f"<br><span style='color: #f0f0f0;'>✅ Auditado em: {item['Data_Conferencia']}</span>"
 
             st.markdown(f"""
             <div style="background-color: {card_bg}; color: {text_color}; padding: 15px; border-radius: 10px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                 <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{item['Descrição']}</h4>
-                <p style="margin: 5px 0 0 0; font-size: 14px;">{badge_text}</p>
-                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.8;">Cód: {item['Código Interno']} | Saldo ERP: {item['Qtde. Validade']} un {tag_auditoria}</p>
+                <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500;">{badge_text}</p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">Cód: {item['Código Interno']} | Saldo ERP: {item['Qtde. Validade']} un {tag_auditoria}</p>
             </div>
             """, unsafe_allow_html=True)
             

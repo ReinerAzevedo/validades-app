@@ -11,8 +11,16 @@ COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer'
 
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
-        return pd.read_csv(CAMINHO_BASE)
-    return pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
+        df = pd.read_csv(CAMINHO_BASE)
+    else:
+        df = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
+    
+    # FORÇA AS COLUNAS A ACEITAREM TEXTO (OBJECT) PARA EVITAR ERRO DE TIPAGEM
+    for col in COLUNAS_APP:
+        if col in df.columns:
+            df[col] = df[col].astype(object)
+            
+    return df
 
 if 'df_base' not in st.session_state:
     st.session_state.df_base = carregar_dados()
@@ -54,6 +62,12 @@ def atualizar_base_cumulativa(arquivos_upados):
             itens_novos['Status'] = 'Pendente'
         
         df_atualizado = pd.concat([df_base, itens_novos]).reset_index()
+        
+        # Garante que as colunas continuem flexíveis após a mesclagem
+        for col in COLUNAS_APP:
+            if col in df_atualizado.columns:
+                df_atualizado[col] = df_atualizado[col].astype(object)
+                
         df_atualizado.to_csv(CAMINHO_BASE, index=False)
         st.session_state.df_base = df_atualizado 
         return True
@@ -84,8 +98,7 @@ if not df_full.empty:
         
         st.markdown("### 🔍 Localizar Produto")
         
-        # Campo preparado para receber o teclado scanner
-        busca = st.text_input("Bipe o GTIN com o teclado do celular ou digite o Código Interno:")
+        busca = st.text_input("Bipe o GTIN com o teclado do telemóvel ou digite o Código:")
         
         if busca:
             busca_limpa = busca.strip()
@@ -119,12 +132,14 @@ if not df_full.empty:
                         preco_rebaixa = st.number_input("Preço Rebaixa (R$)", min_value=0.0, format="%.2f")
                         data_acao = st.date_input("Data de Início")
                     
-                    # Usa o sistema de arquivos nativo do celular (abre a câmera rapidamente)
                     foto = st.file_uploader("📸 Capturar Imagem da Ação (Opcional)", type=['jpg', 'jpeg', 'png'])
-                    
                     btn_salvar = st.form_submit_button("Salvar Ação")
                     
                     if btn_salvar:
+                        # Garante a flexibilidade no exato momento de salvar
+                        for col in ['Acao_Tomada', 'Status', 'Data_Inicio_Acao']:
+                            st.session_state.df_base[col] = st.session_state.df_base[col].astype(object)
+
                         if acao == "Resolvido - Sem Estoque Físico":
                             qtde_real = 0
                             status_final = "Concluído"

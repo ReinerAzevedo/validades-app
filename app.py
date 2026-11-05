@@ -417,17 +417,29 @@ if not df_full.empty:
             total_lotes = len(lotes_produto)
             badge_lotes = f"📦 **{total_lotes} lote(s) com datas diferentes**" if total_lotes > 1 else f"📅 Vencimento: {pd.to_datetime(primeiro_item['Data de Validade']).strftime('%d/%m/%Y')}"
 
+            # Resumo rápido das quantidades no card principal
+            if total_lotes == 1:
+                item_u = lotes_produto.iloc[0]
+                q_sis = int(item_u['Qtde. Validade']) if pd.notna(item_u['Qtde. Validade']) else 0
+                if pd.notna(item_u.get('Qtde_Real_Vencer')) and str(item_u.get('Qtde_Real_Vencer')).strip() != "":
+                    q_real_txt = f"{int(float(item_u['Qtde_Real_Vencer']))} un"
+                else:
+                    q_real_txt = "Pendente contagem física"
+                info_qtd_card = f"📊 Qtd Sistema: {q_sis} un | 🔍 Qtd Real: {q_real_txt}"
+            else:
+                info_qtd_card = f"📦 Múltiplos lotes (ver detalhes abaixo)"
+
             st.markdown(f"""
             <div style="background-color: {card_bg}; color: {text_color}; padding: 15px; border-radius: 10px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                 <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{primeiro_item['Descrição']}</h4>
                 <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500;">{badge_lotes}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; opacity: 0.95;">{info_qtd_card}</p>
                 <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">Cód: {primeiro_item['Código Interno']} | Setor: {primeiro_item['Setor de Compra']}</p>
             </div>
             """, unsafe_allow_html=True)
             
             with st.expander(f"🔍 Gerenciar Lotes / Validades ({total_lotes}) para: {primeiro_item['Descrição'][:30]}..."):
                 for _, item in lotes_produto.iterrows():
-                    # Tratamento visual das quantidades Sistema vs Real Conferida
                     qtd_sistema = int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0
                     
                     if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "":

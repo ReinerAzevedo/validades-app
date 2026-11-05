@@ -58,6 +58,11 @@ COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer'
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
         df = pd.read_csv(CAMINHO_BASE)
+        # Normalização rigorosa de códigos para evitar problemas de leitura
+        if 'Código Interno' in df.columns:
+            df['Código Interno'] = df['Código Interno'].astype(str).str.strip().str.replace('.0', '', regex=False)
+        if 'GTIN' in df.columns:
+            df['GTIN'] = df['GTIN'].astype(str).str.strip().str.replace('.0', '', regex=False)
     else:
         df = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
     
@@ -87,7 +92,12 @@ def atualizar_base_cumulativa(arquivos_upados):
             df = pd.read_excel(arq, header=27)
             df = df[COLUNAS_ERP].copy()
             df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
-            df['Código Interno'] = pd.to_numeric(df['Código Interno'], errors='coerce').fillna(0).astype(int).astype(str)
+            
+            # Blindagem de normalização de strings e remoção de .0
+            df['Código Interno'] = df['Código Interno'].astype(str).str.strip().str.replace('.0', '', regex=False)
+            if 'GTIN' in df.columns:
+                df['GTIN'] = df['GTIN'].astype(str).str.strip().str.replace('.0', '', regex=False)
+                
             df['Data de Validade'] = pd.to_datetime(df['Data de Validade']).dt.strftime('%Y-%m-%d')
             df['Chave_ID'] = df['Código Interno'] + "_" + df['Data de Validade']
             lista_dfs.append(df)
@@ -333,7 +343,7 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
+    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO COM PROTEÇÃO DE DUPLICIDADE ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
         st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
@@ -342,10 +352,10 @@ if not df_full.empty:
         
         desc_padrao, gtin_padrao, setor_padrao, preco_padrao = "", "", "Mercearia", 0.0
         if codigo_manual:
-            cod_limpo = codigo_manual.strip()
+            cod_limpo = str(codigo_manual).strip().replace('.0', '')
             df_encontrado = st.session_state.df_base[
                 (st.session_state.df_base['Código Interno'].astype(str) == cod_limpo) | 
-                (st.session_state.df_base['GTIN'].astype(str).str.replace('.0', '', regex=False) == cod_limpo)
+                (st.session_state.df_base['GTIN'].astype(str) == cod_limpo)
             ]
             if not df_encontrado.empty:
                 desc_padrao = str(df_encontrado.iloc[0]['Descrição'])
@@ -355,8 +365,8 @@ if not df_full.empty:
                 st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
         
         with st.form("modal_add"):
-            c_interno = st.text_input("Código Interno:", value=codigo_manual.strip() if codigo_manual else "")
-            c_gtin = st.text_input("GTIN (Código de Barras):", value=gtin_padrao if gtin_padrao else (codigo_manual.strip() if codigo_manual else ""))
+            c_interno = st.text_input("Código Interno:", value=str(codigo_manual).strip().replace('.0', '') if codigo_manual else "")
+            c_gtin = st.text_input("GTIN (Código de Barras):", value=str(gtin_padrao).strip().replace('.0', '') if gtin_padrao else (str(codigo_manual).strip().replace('.0', '') if codigo_manual else ""))
             descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)
             
             val_manual = st.date_input("2️⃣ Nova Data de Validade")
@@ -372,11 +382,14 @@ if not df_full.empty:
             obs_m = st.text_area("Anotações / Observações (Opcional)")
             
             if st.form_submit_button("Gravar Produto na Base"):
-                # Validação de segurança: Rebaixa exige preço maior que zero
                 if acao_m == "Rebaixa" and preco_reb_manual <= 0:
                     st.error("⚠️ Para a ação 'Rebaixa', o preço promocional deve ser maior que zero!")
                 elif c_interno and descricao_manual:
-                    chave = f"{c_interno.strip()}_{val_manual.strftime('%Y-%m-%d')}"
+                    c_int_limpo = str(c_interno).strip().replace('.0', '')
+                    chave = f"{c_int_limpo}_{val_manual.strftime('%Y-%m-%d')}"
+                    
+                    # BLINDA CONTRA DUPLICIDADE: Verifica se a chave já existe na base
+                    df_b = st.session_state.df_base.set_index('Chave_ID') if 'Chave_ID' in st.session_state.df_base.columns else st.session_state.df_base
                     
                     if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
                         status_m = "Resolvido"
@@ -388,7 +401,7 @@ if not df_full.empty:
                     op_nome = st.session_state.get('operador_nome', 'Não Identificado')
 
                     novo_item = {
-                        'Chave_ID': chave, 'Código Interno': c_interno.strip(), 'GTIN': c_gtin.strip() if c_gtin else c_interno.strip(),
+                        'Chave_ID': chave, 'Código Interno': c_int_limpo, 'GTIN': str(c_gtin).strip().replace('.0', '') if c_gtin else c_int_limpo,
                         'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
                         'Qtde. Validade': 1, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
@@ -397,13 +410,20 @@ if not df_full.empty:
                     }
                     
                     df_nova_linha = pd.DataFrame([novo_item]).set_index('Chave_ID')
-                    df_b = st.session_state.df_base.set_index('Chave_ID') if 'Chave_ID' in st.session_state.df_base.columns else st.session_state.df_base
-                    df_b = pd.concat([df_b, df_nova_linha]).reset_index()
-                    st.session_state.df_base = df_b
-                    salvar_base()
                     
+                    if chave in df_b.index:
+                        # Se já existe, atualiza sem duplicar
+                        df_b.update(df_nova_linha)
+                        st.session_state.df_base = df_b.reset_index()
+                        st.success("⚠️ Este lote já existia na base. Dados atualizados com sucesso!")
+                    else:
+                        # Se não existe, adiciona normalmente
+                        df_b = pd.concat([df_b, df_nova_linha]).reset_index()
+                        st.session_state.df_base = df_b
+                        st.success("✅ Produto adicionado e encaminhado para conferência!")
+                        
+                    salvar_base()
                     st.session_state.mostrar_add = False 
-                    st.success("✅ Produto adicionado e encaminhado para conferência!")
                     st.rerun()
                 else:
                     st.error("Preencha o Código Interno e a Descrição.")
@@ -413,10 +433,10 @@ if not df_full.empty:
     # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO ---
     if not dados_filtrados.empty:
         if busca:
-            busca_limpa = busca.strip()
+            busca_limpa = str(busca).strip().replace('.0', '')
             dados_filtrados = dados_filtrados[
                 (dados_filtrados['Código Interno'].astype(str) == busca_limpa) | 
-                (dados_filtrados['GTIN'].astype(str).str.replace('.0', '', regex=False) == busca_limpa) |
+                (dados_filtrados['GTIN'].astype(str) == busca_limpa) |
                 (dados_filtrados['Descrição'].astype(str).str.contains(busca_limpa, case=False))
             ]
 
@@ -434,7 +454,6 @@ if not df_full.empty:
             total_lotes = len(lotes_produto)
             badge_lotes = f"📦 **{total_lotes} lote(s) com datas diferentes**" if total_lotes > 1 else f"📅 Vencimento: {pd.to_datetime(primeiro_item['Data de Validade']).strftime('%d/%m/%Y')}"
 
-            # Resumo rápido das quantidades no card principal
             if total_lotes == 1:
                 item_u = lotes_produto.iloc[0]
                 q_sis = int(item_u['Qtde. Validade']) if pd.notna(item_u['Qtde. Validade']) else 0
@@ -480,7 +499,6 @@ if not df_full.empty:
                             foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'], key=f"ft_{item['Chave_ID']}")
                             
                             if st.form_submit_button(f"Confirmar Lote {item['Data de Validade']}"):
-                                # Blindagem financeira: Rebaixa exige preço maior que zero
                                 if acao == "Rebaixa" and preco_reb <= 0:
                                     st.error("⚠️ Atenção: Para a ação 'Rebaixa', o preço promocional deve ser preenchido e maior que zero!")
                                 else:

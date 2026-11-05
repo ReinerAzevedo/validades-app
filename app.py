@@ -169,7 +169,6 @@ with st.expander("📊 Painel de Indicadores Gerenciais (Dashboard)"):
         df_dash['Data de Validade'] = pd.to_datetime(df_dash['Data de Validade'], errors='coerce')
         hoje_dash = pd.to_datetime('today').normalize()
         
-        # Métricas gerais
         total_geral = len(df_dash)
         total_pend = len(df_dash[df_dash['Status'] == 'Pendente'])
         total_conf = len(df_dash[df_dash['Status'] == 'Conferido'])
@@ -476,7 +475,7 @@ if not df_full.empty:
                     
         st.divider()
 
-    # --- LISTAGEM DOS CARDS COM BUSCA PRIORIZANDO GTIN E PAGINAÇÃO ---
+    # --- LISTAGEM DOS CARDS ORDENADOS POR VALIDADE (MAIS PRÓXIMA PRIMEIRO) E PAGINAÇÃO ---
     if not dados_filtrados.empty:
         if busca:
             busca_limpa = str(busca).strip().replace('.0', '')
@@ -486,6 +485,10 @@ if not df_full.empty:
                 (dados_filtrados['Descrição'].astype(str).str.contains(busca_limpa, case=False))
             ]
 
+        # ORDENAÇÃO POR VALIDADE (Crescente: As mais próximas / vencidas primeiro)
+        dados_filtrados = dados_filtrados.sort_values(by='Data de Validade', ascending=True)
+
+        # Agrupamento mantendo a ordem da validade mais próxima por código
         codigos_unicos = dados_filtrados['Código Interno'].unique()
         total_produtos = len(codigos_unicos)
         
@@ -496,7 +499,7 @@ if not df_full.empty:
         with col_pag2:
             pagina_atual = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, step=1, label_visibility="collapsed")
         
-        st.caption(f"Mostrando página {pagina_atual} de {total_paginas} (Total de produtos: {total_produtos})")
+        st.caption(f"Mostrando página {pagina_atual} de {total_paginas} (Total de produtos: {total_produtos}) - Ordenado por validade mais próxima")
         
         inicio_idx = (pagina_atual - 1) * itens_por_pagina
         fim_idx = inicio_idx + itens_por_pagina
@@ -504,6 +507,8 @@ if not df_full.empty:
 
         for cod in codigos_pagina:
             lotes_produto = dados_filtrados[dados_filtrados['Código Interno'].astype(str) == str(cod)]
+            # Ordena também os lotes internos do produto pela data mais próxima
+            lotes_produto = lotes_produto.sort_values(by='Data de Validade', ascending=True)
             primeiro_item = lotes_produto.iloc[0]
             
             status_principal = primeiro_item['Status']
@@ -529,7 +534,7 @@ if not df_full.empty:
                     q_real_txt = f"{int(float(item_u['Qtde_Real_Vencer']))} un"
                 else:
                     q_real_txt = "<span style='background-color: #f1c40f; color: #000000; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⚠️ Pendente contagem física</span>"
-                info_qtd_card = f"📊 Qtd Sistema: {q_sis} un  |  🔍 Qtd Real: {q_real_txt}"
+                info_qtd_card = f"📊 Qtd Sistema: {q_sis} un &nbsp;|&nbsp; 🔍 Qtd Real: {q_real_txt}"
             else:
                 info_qtd_card = f"📦 Múltiplos lotes (ver detalhes abaixo)"
 
@@ -555,7 +560,7 @@ if not df_full.empty:
                         qtd_real_str = "<span style='background-color: #f1c40f; color: #000000; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⚠️ Pendente contagem física</span>"
 
                     st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}**")
-                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
+                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un &nbsp;&nbsp;|&nbsp;&nbsp; 🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
                     
                     if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
                         op_reg = item['Operador'] if pd.notna(item.get('Operador')) else 'Não Identificado'
@@ -568,7 +573,7 @@ if not df_full.empty:
                     if st.session_state.funil_atual != "3️⃣ Resolvidos":
                         with st.form(key=f"form_auditar_{item['Chave_ID']}"):
                             qt_real = st.number_input("Quantidade Real", value=int(item['Qtde_Real_Vencer']) if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "" else int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
-                            acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Stock Físico"], key=f"ac_{item['Chave_ID']}")
+                            acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"], key=f"ac_{item['Chave_ID']}")
                             preco_reb = st.number_input("Preço da Rebaixa (R$)", value=float(item['Preco_Rebaixa']) if pd.notna(item.get('Preco_Rebaixa')) else 0.0, key=f"p_{item['Chave_ID']}")
                             obs_audit = st.text_area("Anotações / Observações (Opcional)", key=f"ob_{item['Chave_ID']}")
                             foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'], key=f"ft_{item['Chave_ID']}")
@@ -578,7 +583,7 @@ if not df_full.empty:
                                     st.error("⚠️ Atenção: Para a ação 'Rebaixa', o preço promocional deve ser preenchido e maior que zero!")
                                 else:
                                     if qt_real == 0:
-                                        acao = "Resolvido - Sem Stock Físico"
+                                        acao = "Resolvido - Sem Estoque Físico"
                                         preco_reb = 0.0
 
                                     idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
@@ -594,7 +599,7 @@ if not df_full.empty:
                                     st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
                                     st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
                                     st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
-                                    st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Stock Físico"] else 'Conferido'
+                                    st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
                                     st.session_state.df_base.at[idx, 'Data_Conferencia'] = data_agora
                                     st.session_state.df_base.at[idx, 'Operador'] = op_nome
                                     st.session_state.df_base.at[idx, 'Historico_Log'] = log_atualizado

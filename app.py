@@ -53,7 +53,7 @@ st.title("🟩 PRO - Validades Loja 10")
 
 CAMINHO_BASE = "base_validades.csv"
 COLUNAS_ERP = ['Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 'Estoque Atual', 'Qtde. Validade', 'Setor de Compra']
-COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status', 'Origem', 'Data_Conferencia', 'Observacoes']
+COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status', 'Origem', 'Data_Conferencia', 'Observacoes', 'Operador']
 
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
@@ -64,6 +64,7 @@ def carregar_dados():
     if 'Origem' not in df.columns: df['Origem'] = 'Planilha'
     if 'Data_Conferencia' not in df.columns: df['Data_Conferencia'] = None
     if 'Observacoes' not in df.columns: df['Observacoes'] = None
+    if 'Operador' not in df.columns: df['Operador'] = None
         
     for col in COLUNAS_APP + ['Setor de Compra']:
         if col in df.columns:
@@ -134,6 +135,15 @@ if 'filtro_atual' not in st.session_state: st.session_state.filtro_atual = "Todo
 if 'funil_atual' not in st.session_state: st.session_state.funil_atual = "1️⃣ Pendentes"
 if 'mostrar_add' not in st.session_state: st.session_state.mostrar_add = False
 
+# --- TOP BAR: IDENTIFICAÇÃO DO OPERADOR ---
+col_op1, col_op2 = st.columns([2, 3])
+with col_op1:
+    operador_atual = st.text_input("👤 Nome / Matrícula do Operador:", value=st.session_state.get('operador_nome', ''), placeholder="Ex: João / Matrícula")
+    if operador_atual:
+        st.session_state.operador_nome = operador_atual.strip()
+    else:
+        st.session_state.operador_nome = "Não Identificado"
+
 # --- TOP BAR: UPLOAD DO ERP ---
 with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
     arquivos = st.file_uploader("Relatórios Excel", accept_multiple_files=True)
@@ -176,11 +186,13 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
                 .codigo {{ font-weight: bold; color: #2c3e50; }}
             </style></head><body>
             <div class="header"><h2>📋 Relatório de Validades - {hoje_str}</h2></div>
-            <table><tr><th>Código</th><th>Descrição</th><th>Vencimento</th><th>Qtd Sistema</th><th>Qtd Real</th><th>Ação</th><th>Obs</th></tr>
+            <table><tr><th>Código</th><th>Descrição</th><th>Vencimento</th><th>Qtd Sistema</th><th>Qtd Real</th><th>Ação</th><th>Preço Rebaixa</th><th>Operador</th><th>Obs</th></tr>
             """
             for _, row in df_dia.iterrows():
                 obs_text = row['Observacoes'] if pd.notna(row['Observacoes']) and row['Observacoes'] else "-"
-                html_content += f"<tr><td class='codigo'>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde. Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{obs_text}</td></tr>"
+                op_text = row['Operador'] if pd.notna(row['Operador']) and row['Operador'] else "-"
+                prec_reb_txt = f"R$ {float(row['Preco_Rebaixa']):.2f}" if pd.notna(row['Preco_Rebaixa']) and float(row['Preco_Rebaixa']) > 0 else "-"
+                html_content += f"<tr><td class='codigo'>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde. Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{prec_reb_txt}</td><td>{op_text}</td><td>{obs_text}</td></tr>"
             html_content += "</table></body></html>"
             
             with col_ex2:
@@ -356,10 +368,14 @@ if not df_full.empty:
             setor_m = st.selectbox("Setor", setores, index=idx)
             
             acao_m = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
+            preco_reb_manual = st.number_input("Preço da Rebaixa (R$)", min_value=0.0, format="%.2f", value=0.0)
             obs_m = st.text_area("Anotações / Observações (Opcional)")
             
             if st.form_submit_button("Gravar Produto na Base"):
-                if c_interno and descricao_manual:
+                # Validação de segurança: Rebaixa exige preço maior que zero
+                if acao_m == "Rebaixa" and preco_reb_manual <= 0:
+                    st.error("⚠️ Para a ação 'Rebaixa', o preço promocional deve ser maior que zero!")
+                elif c_interno and descricao_manual:
                     chave = f"{c_interno.strip()}_{val_manual.strftime('%Y-%m-%d')}"
                     
                     if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
@@ -369,14 +385,15 @@ if not df_full.empty:
                         status_m = "Conferido"
                         
                     data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                    op_nome = st.session_state.get('operador_nome', 'Não Identificado')
 
                     novo_item = {
                         'Chave_ID': chave, 'Código Interno': c_interno.strip(), 'GTIN': c_gtin.strip() if c_gtin else c_interno.strip(),
                         'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
                         'Qtde. Validade': 1, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
-                        'Acao_Tomada': acao_m,
-                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m
+                        'Acao_Tomada': acao_m, 'Preco_Rebaixa': preco_reb_manual,
+                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m, 'Operador': op_nome
                     }
                     
                     df_nova_linha = pd.DataFrame([novo_item]).set_index('Chave_ID')
@@ -451,38 +468,45 @@ if not df_full.empty:
                     st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
                     
                     if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
-                        st.caption(f"✅ Auditado em: {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']}")
+                        op_reg = item['Operador'] if pd.notna(item.get('Operador')) else 'Não Identificado'
+                        st.caption(f"✅ Auditado por: {op_reg} em {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']}")
 
                     if st.session_state.funil_atual != "3️⃣ Resolvidos":
                         with st.form(key=f"form_auditar_{item['Chave_ID']}"):
                             qt_real = st.number_input("Quantidade Real", value=int(item['Qtde_Real_Vencer']) if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "" else int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
                             acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"], key=f"ac_{item['Chave_ID']}")
-                            preco_reb = st.number_input("Preço da Rebaixa (R$)", value=0.0, key=f"p_{item['Chave_ID']}")
+                            preco_reb = st.number_input("Preço da Rebaixa (R$)", value=float(item['Preco_Rebaixa']) if pd.notna(item.get('Preco_Rebaixa')) else 0.0, key=f"p_{item['Chave_ID']}")
                             obs_audit = st.text_area("Anotações / Observações (Opcional)", key=f"ob_{item['Chave_ID']}")
                             foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'], key=f"ft_{item['Chave_ID']}")
                             
                             if st.form_submit_button(f"Confirmar Lote {item['Data de Validade']}"):
-                                if qt_real == 0:
-                                    acao = "Resolvido - Sem Estoque Físico"
-                                    preco_reb = 0.0
+                                # Blindagem financeira: Rebaixa exige preço maior que zero
+                                if acao == "Rebaixa" and preco_reb <= 0:
+                                    st.error("⚠️ Atenção: Para a ação 'Rebaixa', o preço promocional deve ser preenchido e maior que zero!")
+                                else:
+                                    if qt_real == 0:
+                                        acao = "Resolvido - Sem Estoque Físico"
+                                        preco_reb = 0.0
 
-                                idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
-                                st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
-                                st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
-                                st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
-                                st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
-                                st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
-                                st.session_state.df_base.at[idx, 'Data_Conferencia'] = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
-                                
-                                salvar_base()
-                                st.success(f"Lote {item['Data de Validade']} atualizado com sucesso!")
-                                st.rerun()
+                                    idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                                    st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
+                                    st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
+                                    st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
+                                    st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
+                                    st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
+                                    st.session_state.df_base.at[idx, 'Data_Conferencia'] = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                                    st.session_state.df_base.at[idx, 'Operador'] = st.session_state.get('operador_nome', 'Não Identificado')
+                                    
+                                    salvar_base()
+                                    st.success(f"Lote {item['Data de Validade']} atualizado com sucesso!")
+                                    st.rerun()
                     else:
                         if st.button(f"↩️ Reativar Lote {item['Data de Validade']}", key=f"reativar_{item['Chave_ID']}", use_container_width=True):
                             idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
                             st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
                             st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
                             st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
+                            st.session_state.df_base.at[idx, 'Operador'] = None
                             salvar_base()
                             st.rerun()
     else:

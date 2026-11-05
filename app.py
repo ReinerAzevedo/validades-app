@@ -53,12 +53,11 @@ st.title("🟩 PRO - Validades Loja 10")
 
 CAMINHO_BASE = "base_validades.csv"
 COLUNAS_ERP = ['Código Interno', 'GTIN', 'Descrição', 'Data de Validade', 'Data de Entrada', 'Qtde. Recebida', 'Última Venda', 'Estoque Atual', 'Qtde. Validade', 'Setor de Compra']
-COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status', 'Origem', 'Data_Conferencia', 'Observacoes', 'Operador']
+COLUNAS_APP = ['Chave_ID', 'Preço_Sistema', 'Preço_Oferta', 'Qtde_Real_Vencer', 'Preco_Rebaixa', 'Acao_Tomada', 'Data_Inicio_Acao', 'Status', 'Origem', 'Data_Conferencia', 'Observacoes', 'Operador', 'Historico_Log']
 
 def carregar_dados():
     if os.path.exists(CAMINHO_BASE):
         df = pd.read_csv(CAMINHO_BASE)
-        # Normalização rigorosa de códigos para evitar problemas de leitura
         if 'Código Interno' in df.columns:
             df['Código Interno'] = df['Código Interno'].astype(str).str.strip().str.replace('.0', '', regex=False)
         if 'GTIN' in df.columns:
@@ -70,6 +69,7 @@ def carregar_dados():
     if 'Data_Conferencia' not in df.columns: df['Data_Conferencia'] = None
     if 'Observacoes' not in df.columns: df['Observacoes'] = None
     if 'Operador' not in df.columns: df['Operador'] = None
+    if 'Historico_Log' not in df.columns: df['Historico_Log'] = None
         
     for col in COLUNAS_APP + ['Setor de Compra']:
         if col in df.columns:
@@ -93,7 +93,6 @@ def atualizar_base_cumulativa(arquivos_upados):
             df = df[COLUNAS_ERP].copy()
             df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
             
-            # Blindagem de normalização de strings e remoção de .0
             df['Código Interno'] = df['Código Interno'].astype(str).str.strip().str.replace('.0', '', regex=False)
             if 'GTIN' in df.columns:
                 df['GTIN'] = df['GTIN'].astype(str).str.strip().str.replace('.0', '', regex=False)
@@ -163,8 +162,8 @@ with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
                 st.success("Base de dados atualizada com sucesso!")
                 st.rerun()
 
-# --- TOP BAR: RELATÓRIOS E EXPORTAÇÃO DIÁRIA ---
-with st.expander("📥 Relatórios Diários (Exportar)"):
+# --- TOP BAR: RELATÓRIOS E EXPORTAÇÃO DIÁRIA (COM BACKUP COMPLETO) ---
+with st.expander("📥 Relatórios Diários e Backup"):
     hoje_str = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y')
     if not st.session_state.df_base.empty:
         df_dia = st.session_state.df_base[
@@ -175,7 +174,7 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
         st.metric(f"Itens Auditados Hoje ({hoje_str})", len(df_dia))
         
         if not df_dia.empty:
-            col_ex1, col_ex2 = st.columns(2)
+            col_ex1, col_ex2, col_ex3 = st.columns(3)
             
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -183,7 +182,7 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
             excel_data = output.getvalue()
             
             with col_ex1:
-                st.download_button(label="📊 Exportar para Excel", data=excel_data, file_name=f"validades_conferidas_{hoje_str.replace('/','-')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+                st.download_button(label="📊 Exportar Excel Hoje", data=excel_data, file_name=f"validades_conferidas_{hoje_str.replace('/','-')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             
             html_content = f"""
             <html><head><meta charset="utf-8"><style>
@@ -207,8 +206,15 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
             
             with col_ex2:
                 st.download_button(label="🌐 Exportar HTML Visual", data=html_content, file_name=f"relatorio_validades_{hoje_str.replace('/','-')}.html", mime="text/html", use_container_width=True)
+                
+            # NOVO: Botão de Backup Completo da Base de Dados
+            csv_backup = st.session_state.df_base.to_csv(index=False).encode('utf-8')
+            with col_ex3:
+                st.download_button(label="💾 Backup Completo (CSV)", data=csv_backup, file_name=f"backup_base_validades_{hoje_str.replace('/','-')}.csv", mime="text/csv", use_container_width=True)
         else:
-            st.info("Nenhum item finalizado hoje.")
+            st.info("Nenhum item finalizado hoje. Mas pode descarregar o backup completo da base se desejar.")
+            csv_backup = st.session_state.df_base.to_csv(index=False).encode('utf-8')
+            st.download_button(label="💾 Baixar Backup Completo da Base (CSV)", data=csv_backup, file_name=f"backup_base_validades_{hoje_str.replace('/','-')}.csv", mime="text/csv")
     else:
         st.info("A base de dados está vazia.")
 
@@ -343,7 +349,7 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO COM PROTEÇÃO DE DUPLICIDADE ---
+    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
         st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
@@ -388,7 +394,6 @@ if not df_full.empty:
                     c_int_limpo = str(c_interno).strip().replace('.0', '')
                     chave = f"{c_int_limpo}_{val_manual.strftime('%Y-%m-%d')}"
                     
-                    # BLINDA CONTRA DUPLICIDADE: Verifica se a chave já existe na base
                     df_b = st.session_state.df_base.set_index('Chave_ID') if 'Chave_ID' in st.session_state.df_base.columns else st.session_state.df_base
                     
                     if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
@@ -399,6 +404,7 @@ if not df_full.empty:
                         
                     data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
                     op_nome = st.session_state.get('operador_nome', 'Não Identificado')
+                    log_msg = f"[{data_conf_m}] Criado/Auditado por {op_nome} - Ação: {acao_m}"
 
                     novo_item = {
                         'Chave_ID': chave, 'Código Interno': c_int_limpo, 'GTIN': str(c_gtin).strip().replace('.0', '') if c_gtin else c_int_limpo,
@@ -406,18 +412,16 @@ if not df_full.empty:
                         'Qtde. Validade': 1, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
                         'Acao_Tomada': acao_m, 'Preco_Rebaixa': preco_reb_manual,
-                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m, 'Operador': op_nome
+                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m, 'Operador': op_nome, 'Historico_Log': log_msg
                     }
                     
                     df_nova_linha = pd.DataFrame([novo_item]).set_index('Chave_ID')
                     
                     if chave in df_b.index:
-                        # Se já existe, atualiza sem duplicar
                         df_b.update(df_nova_linha)
                         st.session_state.df_base = df_b.reset_index()
                         st.success("⚠️ Este lote já existia na base. Dados atualizados com sucesso!")
                     else:
-                        # Se não existe, adiciona normalmente
                         df_b = pd.concat([df_b, df_nova_linha]).reset_index()
                         st.session_state.df_base = df_b
                         st.success("✅ Produto adicionado e encaminhado para conferência!")
@@ -430,7 +434,7 @@ if not df_full.empty:
                     
         st.divider()
 
-    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO ---
+    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO (COM PAGINAÇÃO - SUGESTÃO 2) ---
     if not dados_filtrados.empty:
         if busca:
             busca_limpa = str(busca).strip().replace('.0', '')
@@ -441,8 +445,23 @@ if not df_full.empty:
             ]
 
         codigos_unicos = dados_filtrados['Código Interno'].unique()
+        total_produtos = len(codigos_unicos)
+        
+        # Paginação: Exibir 20 produtos por página para manter a leveza no telemóvel
+        itens_por_pagina = 20
+        total_paginas = max(1, (total_produtos + itens_por_pagina - 1) // itens_por_pagina)
+        
+        col_pag1, col_pag2, col_pag3 = st.columns([2, 3, 2])
+        with col_pag2:
+            pagina_atual = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, step=1, label_visibility="collapsed")
+        
+        st.caption(f"Mostrando página {pagina_atual} de {total_paginas} (Total de produtos: {total_produtos})")
+        
+        inicio_idx = (pagina_atual - 1) * itens_por_pagina
+        fim_idx = inicio_idx + itens_por_pagina
+        codigos_pagina = codigos_unicos[inicio_idx:fim_idx]
 
-        for cod in codigos_unicos:
+        for cod in codigos_pagina:
             lotes_produto = dados_filtrados[dados_filtrados['Código Interno'].astype(str) == str(cod)]
             primeiro_item = lotes_produto.iloc[0]
             
@@ -489,6 +508,11 @@ if not df_full.empty:
                     if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
                         op_reg = item['Operador'] if pd.notna(item.get('Operador')) else 'Não Identificado'
                         st.caption(f"✅ Auditado por: {op_reg} em {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']}")
+                        
+                    # Exibe o histórico de log se existir (Sugestão 3)
+                    if pd.notna(item.get('Historico_Log')) and str(item.get('Historico_Log')).strip() != "":
+                        with st.expander("📜 Ver trilha de auditoria (Histórico)"):
+                            st.text(item['Historico_Log'])
 
                     if st.session_state.funil_atual != "3️⃣ Resolvidos":
                         with st.form(key=f"form_auditar_{item['Chave_ID']}"):
@@ -507,13 +531,22 @@ if not df_full.empty:
                                         preco_reb = 0.0
 
                                     idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                                    
+                                    data_agora = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                                    op_nome = st.session_state.get('operador_nome', 'Não Identificado')
+                                    novo_log = f"[{data_agora}] Auditado por {op_nome} - Ação: {acao} (Qtd: {qt_real})"
+                                    
+                                    log_antigo = str(item['Historico_Log']) if pd.notna(item.get('Historico_Log')) else ""
+                                    log_atualizado = f"{log_antigo}\n{novo_log}" if log_antigo else novo_log
+
                                     st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
                                     st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
                                     st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
                                     st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
                                     st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
-                                    st.session_state.df_base.at[idx, 'Data_Conferencia'] = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
-                                    st.session_state.df_base.at[idx, 'Operador'] = st.session_state.get('operador_nome', 'Não Identificado')
+                                    st.session_state.df_base.at[idx, 'Data_Conferencia'] = data_agora
+                                    st.session_state.df_base.at[idx, 'Operador'] = op_nome
+                                    st.session_state.df_base.at[idx, 'Historico_Log'] = log_atualizado
                                     
                                     salvar_base()
                                     st.success(f"Lote {item['Data de Validade']} atualizado com sucesso!")
@@ -521,10 +554,18 @@ if not df_full.empty:
                     else:
                         if st.button(f"↩️ Reativar Lote {item['Data de Validade']}", key=f"reativar_{item['Chave_ID']}", use_container_width=True):
                             idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                            
+                            data_agora = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                            op_nome = st.session_state.get('operador_nome', 'Não Identificado')
+                            novo_log = f"[{data_agora}] Reativado por {op_nome} (Voltou para Pendente)"
+                            log_antigo = str(item['Historico_Log']) if pd.notna(item.get('Historico_Log')) else ""
+                            log_atualizado = f"{log_antigo}\n{novo_log}" if log_antigo else novo_log
+
                             st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
                             st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
                             st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
                             st.session_state.df_base.at[idx, 'Operador'] = None
+                            st.session_state.df_base.at[idx, 'Historico_Log'] = log_atualizado
                             salvar_base()
                             st.rerun()
     else:

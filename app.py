@@ -176,11 +176,11 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
                 .codigo {{ font-weight: bold; color: #2c3e50; }}
             </style></head><body>
             <div class="header"><h2>📋 Relatório de Validades - {hoje_str}</h2></div>
-            <table><tr><th>Código</th><th>Descrição</th><th>Vencimento</th><th>Qtd</th><th>Ação</th><th>Obs</th></tr>
+            <table><tr><th>Código</th><th>Descrição</th><th>Vencimento</th><th>Qtd Sistema</th><th>Qtd Real</th><th>Ação</th><th>Obs</th></tr>
             """
             for _, row in df_dia.iterrows():
                 obs_text = row['Observacoes'] if pd.notna(row['Observacoes']) and row['Observacoes'] else "-"
-                html_content += f"<tr><td class='codigo'>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{obs_text}</td></tr>"
+                html_content += f"<tr><td class='codigo'>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde. Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{obs_text}</td></tr>"
             html_content += "</table></body></html>"
             
             with col_ex2:
@@ -196,20 +196,15 @@ with st.expander("🔒 Painel Administrativo (Excluir Registros / Limpar Base)")
     if senha_adm == "1010":
         st.success("🔓 Acesso Autorizado!")
         
-        # NOVO BOTÃO: Limpar Histórico mas manter o cadastro de produtos (Código, GTIN e Descrição)
         if st.button("🧹 Limpar Histórico e Manter Apenas o Cadastro de Produtos"):
             if not st.session_state.df_base.empty:
-                # Mantém apenas as colunas essenciais de cadastro e remove as datas/status de auditoria
                 df_atual = st.session_state.df_base.copy()
-                
-                # Cria uma base limpa contendo apenas os dados mestres únicos de produtos
                 df_mestre = df_atual[['Código Interno', 'GTIN', 'Descrição', 'Setor de Compra', 'Origem']].drop_duplicates(subset=['Código Interno']).copy()
                 df_mestre['Data de Validade'] = pd.Timestamp.today().strftime('%Y-%m-%d')
                 df_mestre['Chave_ID'] = df_mestre['Código Interno'].astype(str) + "_" + df_mestre['Data de Validade']
                 df_mestre['Status'] = 'Pendente'
                 df_mestre['Qtde. Validade'] = 1
                 
-                # Preenche as restantes colunas do app como vazias
                 for col in COLUNAS_ERP + COLUNAS_APP:
                     if col not in df_mestre.columns:
                         df_mestre[col] = None
@@ -326,7 +321,7 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO (Apenas Código, GTIN e Descrição internamente) ---
+    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
         st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
@@ -378,7 +373,7 @@ if not df_full.empty:
                     novo_item = {
                         'Chave_ID': chave, 'Código Interno': c_interno.strip(), 'GTIN': c_gtin.strip() if c_gtin else c_interno.strip(),
                         'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
-                        'Qtde. Validade': q_manual, 'Qtde_Real_Vencer': q_manual,
+                        'Qtde. Validade': 1, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
                         'Acao_Tomada': acao_m,
                         'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m
@@ -432,14 +427,23 @@ if not df_full.empty:
             
             with st.expander(f"🔍 Gerenciar Lotes / Validades ({total_lotes}) para: {primeiro_item['Descrição'][:30]}..."):
                 for _, item in lotes_produto.iterrows():
-                    st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}** | Saldo ERP: {item['Qtde. Validade']} un")
+                    # Tratamento visual das quantidades Sistema vs Real Conferida
+                    qtd_sistema = int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0
+                    
+                    if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "":
+                        qtd_real_str = f"<b>{int(float(item['Qtde_Real_Vencer']))} un</b>"
+                    else:
+                        qtd_real_str = "<span style='color: #d9534f; font-weight: bold;'>Pendente contagem física</span>"
+
+                    st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}**")
+                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
                     
                     if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
-                        st.caption(f"✅ Auditado em: {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']} | Qtd Real: {item['Qtde_Real_Vencer']}")
+                        st.caption(f"✅ Auditado em: {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']}")
 
                     if st.session_state.funil_atual != "3️⃣ Resolvidos":
                         with st.form(key=f"form_auditar_{item['Chave_ID']}"):
-                            qt_real = st.number_input("Quantidade Real", value=int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
+                            qt_real = st.number_input("Quantidade Real", value=int(item['Qtde_Real_Vencer']) if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "" else int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
                             acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"], key=f"ac_{item['Chave_ID']}")
                             preco_reb = st.number_input("Preço da Rebaixa (R$)", value=0.0, key=f"p_{item['Chave_ID']}")
                             obs_audit = st.text_area("Anotações / Observações (Opcional)", key=f"ob_{item['Chave_ID']}")

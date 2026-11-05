@@ -195,13 +195,14 @@ with st.expander("📥 Relatórios Diários e Backup"):
                 .codigo {{ font-weight: bold; color: #2c3e50; }}
             </style></head><body>
             <div class="header"><h2>📋 Relatório de Validades - {hoje_str}</h2></div>
-            <table><tr><th>Código</th><th>Descrição</th><th>Vencimento</th><th>Qtd Sistema</th><th>Qtd Real</th><th>Ação</th><th>Preço Rebaixa</th><th>Operador</th><th>Obs</th></tr>
+            <table><tr><th>GTIN</th><th>Cód. Interno</th><th>Descrição</th><th>Vencimento</th><th>Qtd Sistema</th><th>Qtd Real</th><th>Ação</th><th>Preço Rebaixa</th><th>Operador</th><th>Obs</th></tr>
             """
             for _, row in df_dia.iterrows():
                 obs_text = row['Observacoes'] if pd.notna(row['Observacoes']) and row['Observacoes'] else "-"
                 op_text = row['Operador'] if pd.notna(row['Operador']) and row['Operador'] else "-"
                 prec_reb_txt = f"R$ {float(row['Preco_Rebaixa']):.2f}" if pd.notna(row['Preco_Rebaixa']) and float(row['Preco_Rebaixa']) > 0 else "-"
-                html_content += f"<tr><td class='codigo'>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde. Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{prec_reb_txt}</td><td>{op_text}</td><td>{obs_text}</td></tr>"
+                gtin_txt = row['GTIN'] if pd.notna(row['GTIN']) else "-"
+                html_content += f"<tr><td class='codigo'>{gtin_txt}</td><td>{row['Código Interno']}</td><td>{row['Descrição']}</td><td>{row['Data de Validade']}</td><td>{row['Qtde. Validade']}</td><td>{row['Qtde_Real_Vencer']}</td><td>{row['Acao_Tomada']}</td><td>{prec_reb_txt}</td><td>{op_text}</td><td>{obs_text}</td></tr>"
             html_content += "</table></body></html>"
             
             with col_ex2:
@@ -337,11 +338,11 @@ if not df_full.empty:
     elif st.session_state.filtro_atual == "No Prazo":
         dados_filtrados = dados_filtrados[dados_filtrados['Data de Validade'] > hoje + pd.Timedelta(days=30)]
 
-    # --- BARRA DE BUSCA E BOTÃO ADICIONAR (+) ---
+    # --- BARRA DE BUSCA PRIORIZANDO O GTIN E BOTÃO ADICIONAR (+) ---
     st.write("")
     col_busca, col_add = st.columns([4, 1])
     with col_busca:
-        busca = st.text_input("Busca", placeholder="Bipe o código ou digite a descrição...", label_visibility="collapsed")
+        busca = st.text_input("Busca", placeholder="Bipe o GTIN (código de barras) ou digite a descrição...", label_visibility="collapsed")
     with col_add:
         st.markdown('<span class="cor-marcador btn-fab"></span>', unsafe_allow_html=True)
         if st.button("➕", use_container_width=True):
@@ -351,27 +352,27 @@ if not df_full.empty:
     # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
-        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
+        st.info("💡 **Dica:** Bipe o GTIN (código de barras). Se o produto já existir, a descrição e o código interno serão preenchidos automaticamente.")
         
-        codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (ou Código Interno):")
+        codigo_manual = st.text_input("1️⃣ Bipe o GTIN (Código de Barras):")
         
-        desc_padrao, gtin_padrao, setor_padrao, preco_padrao = "", "", "Mercearia", 0.0
+        desc_padrao, interno_padrao, setor_padrao, preco_padrao = "", "", "Mercearia", 0.0
         if codigo_manual:
             cod_limpo = str(codigo_manual).strip().replace('.0', '')
             df_encontrado = st.session_state.df_base[
-                (st.session_state.df_base['Código Interno'].astype(str) == cod_limpo) | 
-                (st.session_state.df_base['GTIN'].astype(str) == cod_limpo)
+                (st.session_state.df_base['GTIN'].astype(str) == cod_limpo) | 
+                (st.session_state.df_base['Código Interno'].astype(str) == cod_limpo)
             ]
             if not df_encontrado.empty:
                 desc_padrao = str(df_encontrado.iloc[0]['Descrição'])
-                gtin_padrao = str(df_encontrado.iloc[0]['GTIN']) if pd.notna(df_encontrado.iloc[0]['GTIN']) else cod_limpo
+                interno_padrao = str(df_encontrado.iloc[0]['Código Interno']) if pd.notna(df_encontrado.iloc[0]['Código Interno']) else cod_limpo
                 setor_padrao = str(df_encontrado.iloc[0]['Setor de Compra']) if pd.notna(df_encontrado.iloc[0]['Setor de Compra']) else "Mercearia"
                 preco_padrao = float(df_encontrado.iloc[0]['Preço_Sistema']) if pd.notna(df_encontrado.iloc[0]['Preço_Sistema']) else 0.0
                 st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
         
         with st.form("modal_add"):
-            c_interno = st.text_input("Código Interno:", value=str(codigo_manual).strip().replace('.0', '') if codigo_manual else "")
-            c_gtin = st.text_input("GTIN (Código de Barras):", value=str(gtin_padrao).strip().replace('.0', '') if gtin_padrao else (str(codigo_manual).strip().replace('.0', '') if codigo_manual else ""))
+            c_gtin = st.text_input("GTIN (Código de Barras Principal):", value=str(codigo_manual).strip().replace('.0', '') if codigo_manual else "")
+            c_interno = st.text_input("Código Interno (Complemento):", value=interno_padrao if interno_padrao else (str(codigo_manual).strip().replace('.0', '') if codigo_manual else ""))
             descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)
             
             val_manual = st.date_input("2️⃣ Nova Data de Validade")
@@ -389,8 +390,9 @@ if not df_full.empty:
             if st.form_submit_button("Gravar Produto na Base"):
                 if acao_m == "Rebaixa" and preco_reb_manual <= 0:
                     st.error("⚠️ Para a ação 'Rebaixa', o preço promocional deve ser maior que zero!")
-                elif c_interno and descricao_manual:
-                    c_int_limpo = str(c_interno).strip().replace('.0', '')
+                elif c_gtin and descricao_manual:
+                    c_gtin_limpo = str(c_gtin).strip().replace('.0', '')
+                    c_int_limpo = str(c_interno).strip().replace('.0', '') if c_interno else c_gtin_limpo
                     chave = f"{c_int_limpo}_{val_manual.strftime('%Y-%m-%d')}"
                     
                     df_b = st.session_state.df_base.set_index('Chave_ID') if 'Chave_ID' in st.session_state.df_base.columns else st.session_state.df_base
@@ -406,7 +408,7 @@ if not df_full.empty:
                     log_msg = f"[{data_conf_m}] Criado/Auditado por {op_nome} - Ação: {acao_m}"
 
                     novo_item = {
-                        'Chave_ID': chave, 'Código Interno': c_int_limpo, 'GTIN': str(c_gtin).strip().replace('.0', '') if c_gtin else c_int_limpo,
+                        'Chave_ID': chave, 'Código Interno': c_int_limpo, 'GTIN': c_gtin_limpo,
                         'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
                         'Qtde. Validade': 1, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
@@ -429,17 +431,17 @@ if not df_full.empty:
                     st.session_state.mostrar_add = False 
                     st.rerun()
                 else:
-                    st.error("Preencha o Código Interno e a Descrição.")
+                    st.error("Preencha o GTIN e a Descrição.")
                     
         st.divider()
 
-    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO (COM PAGINAÇÃO) ---
+    # --- LISTAGEM DOS CARDS COM BUSCA PRIORIZANDO GTIN E PAGINAÇÃO ---
     if not dados_filtrados.empty:
         if busca:
             busca_limpa = str(busca).strip().replace('.0', '')
             dados_filtrados = dados_filtrados[
-                (dados_filtrados['Código Interno'].astype(str) == busca_limpa) | 
-                (dados_filtrados['GTIN'].astype(str) == busca_limpa) |
+                (dados_filtrados['GTIN'].astype(str) == busca_limpa) | 
+                (dados_filtrados['Código Interno'].astype(str) == busca_limpa) |
                 (dados_filtrados['Descrição'].astype(str).str.contains(busca_limpa, case=False))
             ]
 
@@ -466,13 +468,12 @@ if not df_full.empty:
             status_principal = primeiro_item['Status']
             total_lotes = len(lotes_produto)
             
-            # COR DO CARD: Definida com segurança antes de renderizar
             if status_principal == 'Pendente':
                 data_val_prim = pd.to_datetime(primeiro_item['Data de Validade']).normalize()
                 if total_lotes == 1 and data_val_prim < hoje:
-                    card_bg, text_color = "#e74c3c", "white" # Vermelho para Vencido
+                    card_bg, text_color = "#e74c3c", "white"
                 else:
-                    card_bg, text_color = "#e67e22", "white" # Laranja padrão
+                    card_bg, text_color = "#e67e22", "white"
             elif status_principal == 'Conferido': 
                 card_bg, text_color = "#9b59b6", "white"
             else: 
@@ -491,12 +492,15 @@ if not df_full.empty:
             else:
                 info_qtd_card = f"📦 Múltiplos lotes (ver detalhes abaixo)"
 
+            gtin_card = primeiro_item['GTIN'] if pd.notna(primeiro_item['GTIN']) else "-"
+            cod_int_card = primeiro_item['Código Interno']
+
             st.markdown(f"""
             <div style="background-color: {card_bg}; color: {text_color}; padding: 15px; border-radius: 10px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                 <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{primeiro_item['Descrição']}</h4>
                 <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500;">{badge_lotes}</p>
                 <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; opacity: 0.95;">{info_qtd_card}</p>
-                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">Cód: {primeiro_item['Código Interno']} | Setor: {primeiro_item['Setor de Compra']}</p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">GTIN: <b>{gtin_card}</b> | Cód. Int: {cod_int_card} | Setor: {primeiro_item['Setor de Compra']}</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -510,7 +514,7 @@ if not df_full.empty:
                         qtd_real_str = "<span style='color: #d9534f; font-weight: bold;'>Pendente contagem física</span>"
 
                     st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}**")
-                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
+                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un &nbsp;&nbsp;|&nbsp;&nbsp; 🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
                     
                     if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
                         op_reg = item['Operador'] if pd.notna(item.get('Operador')) else 'Não Identificado'
@@ -567,7 +571,7 @@ if not df_full.empty:
                             log_antigo = str(item['Historico_Log']) if pd.notna(item.get('Historico_Log')) else ""
                             log_atualizado = f"{log_antigo}\n{novo_log}" if log_antigo else novo_log
 
-                            st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
+                                st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
                             st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
                             st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
                             st.session_state.df_base.at[idx, 'Operador'] = None

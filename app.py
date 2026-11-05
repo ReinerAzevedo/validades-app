@@ -514,7 +514,7 @@ if not df_full.empty:
                         qtd_real_str = "<span style='color: #d9534f; font-weight: bold;'>Pendente contagem física</span>"
 
                     st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}**")
-                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un &nbsp;&nbsp;|&nbsp;&nbsp; 🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
+                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
                     
                     if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
                         op_reg = item['Operador'] if pd.notna(item.get('Operador')) else 'Não Identificado'
@@ -571,7 +571,7 @@ if not df_full.empty:
                             log_antigo = str(item['Historico_Log']) if pd.notna(item.get('Historico_Log')) else ""
                             log_atualizado = f"{log_antigo}\n{novo_log}" if log_antigo else novo_log
 
-                                st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
+                            st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
                             st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
                             st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
                             st.session_state.df_base.at[idx, 'Operador'] = None

@@ -350,7 +350,7 @@ if not df_full.empty:
 
     # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
     if st.session_state.mostrar_add:
-        st.markdown("### Adicionar Nova Validade ou Produto")
+        st.markdown("### ➕ Adicionar Nova Validade ou Produto")
         st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
         
         codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (ou Código Interno):")
@@ -464,7 +464,9 @@ if not df_full.empty:
             primeiro_item = lotes_produto.iloc[0]
             
             status_principal = primeiro_item['Status']
+            total_lotes = len(lotes_produto)
             
+            # COR DO CARD: Definida com segurança antes de renderizar
             if status_principal == 'Pendente':
                 data_val_prim = pd.to_datetime(primeiro_item['Data de Validade']).normalize()
                 if total_lotes == 1 and data_val_prim < hoje:
@@ -476,7 +478,6 @@ if not df_full.empty:
             else: 
                 card_bg, text_color = "#2ecc71", "white"
 
-            total_lotes = len(lotes_produto)
             badge_lotes = f"📦 **{total_lotes} lote(s) com datas diferentes**" if total_lotes > 1 else f"📅 Vencimento: {pd.to_datetime(primeiro_item['Data de Validade']).strftime('%d/%m/%Y')}"
 
             if total_lotes == 1:

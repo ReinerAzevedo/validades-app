@@ -134,13 +134,13 @@ if 'filtro_atual' not in st.session_state: st.session_state.filtro_atual = "Todo
 if 'funil_atual' not in st.session_state: st.session_state.funil_atual = "1️⃣ Pendentes"
 if 'mostrar_add' not in st.session_state: st.session_state.mostrar_add = False
 
-# --- TOP BAR: UPLOAD DO ERP (RESTAURADO E ATIVO) ---
+# --- TOP BAR: UPLOAD DO ERP ---
 with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
     arquivos = st.file_uploader("Relatórios Excel", accept_multiple_files=True)
     if arquivos and st.button("Carregar Dados"):
         with st.spinner("Consolidando dados do ERP..."):
             if atualizar_base_cumulativa(arquivos):
-                st.success("Base de dados atualizada e integrada com sucesso!")
+                st.success("Base de dados atualizada com sucesso!")
                 st.rerun()
 
 # --- TOP BAR: RELATÓRIOS E EXPORTAÇÃO DIÁRIA ---
@@ -196,11 +196,38 @@ with st.expander("🔒 Painel Administrativo (Excluir Registros / Limpar Base)")
     if senha_adm == "1010":
         st.success("🔓 Acesso Autorizado!")
         
-        if st.button("🗑️ Apagar Toda a Base de Dados", type="primary"):
+        # NOVO BOTÃO: Limpar Histórico mas manter o cadastro de produtos (Código, GTIN e Descrição)
+        if st.button("🧹 Limpar Histórico e Manter Apenas o Cadastro de Produtos"):
+            if not st.session_state.df_base.empty:
+                # Mantém apenas as colunas essenciais de cadastro e remove as datas/status de auditoria
+                df_atual = st.session_state.df_base.copy()
+                
+                # Cria uma base limpa contendo apenas os dados mestres únicos de produtos
+                df_mestre = df_atual[['Código Interno', 'GTIN', 'Descrição', 'Setor de Compra', 'Origem']].drop_duplicates(subset=['Código Interno']).copy()
+                df_mestre['Data de Validade'] = pd.Timestamp.today().strftime('%Y-%m-%d')
+                df_mestre['Chave_ID'] = df_mestre['Código Interno'].astype(str) + "_" + df_mestre['Data de Validade']
+                df_mestre['Status'] = 'Pendente'
+                df_mestre['Qtde. Validade'] = 1
+                
+                # Preenche as restantes colunas do app como vazias
+                for col in COLUNAS_ERP + COLUNAS_APP:
+                    if col not in df_mestre.columns:
+                        df_mestre[col] = None
+                
+                st.session_state.df_base = df_mestre[COLUNAS_ERP + COLUNAS_APP]
+                salvar_base()
+                st.success("✅ Histórico limpo! Mantido apenas o cadastro mestre dos produtos.")
+                st.rerun()
+            else:
+                st.warning("A base já está vazia.")
+
+        st.divider()
+
+        if st.button("🗑️ Apagar Toda a Base de Dados (Zero Absoluto)", type="primary"):
             st.session_state.df_base = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
             if os.path.exists(CAMINHO_BASE):
                 os.remove(CAMINHO_BASE)
-            st.success("Base de dados limpa com sucesso!")
+            st.success("Base de dados totalmente limpa!")
             st.rerun()
             
         st.divider()
@@ -299,7 +326,7 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
+    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO (Apenas Código, GTIN e Descrição internamente) ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
         st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")

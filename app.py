@@ -136,18 +136,45 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
     else:
         st.info("A base de dados está vazia.")
 
+# --- TOP BAR: PAINEL ADMINISTRATIVO (PROTEGIDO POR SENHA) ---
+with st.expander("🔒 Painel Administrativo (Excluir Registros / Limpar Base)"):
+    senha_adm = st.text_input("Digite a senha de administrador:", type="password")
+    if senha_adm == "1010": # Senha padrão configurada (pode alterar aqui)
+        st.success("🔓 Acesso Autorizado!")
+        
+        # Opção 1: Limpar Base Inteira
+        if st.button("🗑️ Apagar Toda a Base de Dados", type="primary"):
+            st.session_state.df_base = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
+            if os.path.exists(CAMINHO_BASE):
+                os.remove(CAMINHO_BASE)
+            st.success("Base de dados limpa com sucesso!")
+            st.rerun()
+            
+        st.divider()
+        
+        # Opção 2: Apagar Registros Específicos
+        if not st.session_state.df_base.empty:
+            st.write("Excluir item específico por Chave_ID:")
+            item_para_apagar = st.selectbox("Selecione o item:", st.session_state.df_base['Chave_ID'].astype(str) + " | " + st.session_state.df_base['Descrição'].astype(str))
+            if st.button("❌ Excluir Item Selecionado"):
+                chave_alvo = item_para_apagar.split(" | ")[0]
+                st.session_state.df_base = st.session_state.df_base[st.session_state.df_base['Chave_ID'] != chave_alvo]
+                salvar_base()
+                st.success(f"Item {chave_alvo} apagado com sucesso!")
+                st.rerun()
+    elif senha_adm != "":
+        st.error("❌ Senha incorreta.")
+
 # --- CÁLCULO DOS TOTAIS PARA OS BOTÕES ---
 df_base_calc = st.session_state.df_base.copy()
 if not df_base_calc.empty:
     df_base_calc['Data de Validade'] = pd.to_datetime(df_base_calc['Data de Validade'], errors='coerce')
     hoje = pd.to_datetime('today').normalize()
     
-    # Totais de Funil
     tot_pendentes = len(df_base_calc[df_base_calc['Status'] == 'Pendente'])
     tot_conferidos = len(df_base_calc[df_base_calc['Status'] == 'Conferido'])
     tot_resolvidos = len(df_base_calc[df_base_calc['Status'] == 'Resolvido'])
     
-    # Totais de Validade
     tot_todos = len(df_base_calc)
     tot_vencidos = len(df_base_calc[df_base_calc['Data de Validade'] < hoje])
     tot_proximos = len(df_base_calc[(df_base_calc['Data de Validade'] >= hoje) & (df_base_calc['Data de Validade'] <= hoje + pd.Timedelta(days=30))])
@@ -220,14 +247,14 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- NOVO BLOCO DE ADIÇÃO MANUAL ---
+    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO (Apenas Código, GTIN e Descrição internamente) ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
-        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição será preenchida automaticamente.")
+        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
         
-        codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (e pressione Enter):")
+        codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (ou Código Interno):")
         
-        desc_padrao, preco_padrao, setor_padrao = "", 0.0, "Mercearia"
+        desc_padrao, gtin_padrao, setor_padrao, preco_padrao = "", "", "Mercearia", 0.0
         if codigo_manual:
             cod_limpo = codigo_manual.strip()
             df_encontrado = st.session_state.df_base[
@@ -236,12 +263,17 @@ if not df_full.empty:
             ]
             if not df_encontrado.empty:
                 desc_padrao = str(df_encontrado.iloc[0]['Descrição'])
-                preco_padrao = float(df_encontrado.iloc[0]['Preço_Sistema']) if pd.notna(df_encontrado.iloc[0]['Preço_Sistema']) else 0.0
+                gtin_padrao = str(df_encontrado.iloc[0]['GTIN']) if pd.notna(df_encontrado.iloc[0]['GTIN']) else cod_limpo
                 setor_padrao = str(df_encontrado.iloc[0]['Setor de Compra']) if pd.notna(df_encontrado.iloc[0]['Setor de Compra']) else "Mercearia"
+                preco_padrao = float(df_encontrado.iloc[0]['Preço_Sistema']) if pd.notna(df_encontrado.iloc[0]['Preço_Sistema']) else 0.0
                 st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
         
         with st.form("modal_add"):
+            # Campos essenciais solicitados internamente
+            c_interno = st.text_input("Código Interno:", value=codigo_manual.strip() if codigo_manual else "")
+            c_gtin = st.text_input("GTIN (Código de Barras):", value=gtin_padrao if gtin_padrao else (codigo_manual.strip() if codigo_manual else ""))
             descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)
+            
             val_manual = st.date_input("2️⃣ Nova Data de Validade")
             q_manual = st.number_input("Quantidade Real (Un)", min_value=0, step=1)
             p_manual = st.number_input("Preço Atual (R$)", min_value=0.0, format="%.2f", value=preco_padrao)
@@ -254,8 +286,8 @@ if not df_full.empty:
             obs_m = st.text_area("Anotações / Observações (Opcional)")
             
             if st.form_submit_button("Gravar Produto na Base"):
-                if codigo_manual and descricao_manual:
-                    chave = f"{codigo_manual.strip()}_{val_manual.strftime('%Y-%m-%d')}"
+                if c_interno and descricao_manual:
+                    chave = f"{c_interno.strip()}_{val_manual.strftime('%Y-%m-%d')}"
                     
                     if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
                         status_m = "Resolvido"
@@ -266,7 +298,7 @@ if not df_full.empty:
                     data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
 
                     novo_item = {
-                        'Chave_ID': chave, 'Código Interno': codigo_manual.strip(), 'GTIN': codigo_manual.strip(),
+                        'Chave_ID': chave, 'Código Interno': c_interno.strip(), 'GTIN': c_gtin.strip() if c_gtin else c_interno.strip(),
                         'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
                         'Qtde. Validade': q_manual, 'Qtde_Real_Vencer': q_manual,
                         'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
@@ -284,7 +316,7 @@ if not df_full.empty:
                     st.success("✅ Produto adicionado e encaminhado para conferência!")
                     st.rerun()
                 else:
-                    st.error("Preencha o Código e a Descrição.")
+                    st.error("Preencha o Código Interno e a Descrição.")
                     
         st.divider()
 

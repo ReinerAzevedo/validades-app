@@ -350,4 +350,230 @@ if not df_full.empty:
 
     # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
     if st.session_state.mostrar_add:
-        st.markdown("### ➕ Adicionar Nova Val
+        st.markdown("### Adicionar Nova Validade ou Produto")
+        st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
+        
+        codigo_manual = st.text_input("1️⃣ Bipe o Código de Barras (ou Código Interno):")
+        
+        desc_padrao, gtin_padrao, setor_padrao, preco_padrao = "", "", "Mercearia", 0.0
+        if codigo_manual:
+            cod_limpo = str(codigo_manual).strip().replace('.0', '')
+            df_encontrado = st.session_state.df_base[
+                (st.session_state.df_base['Código Interno'].astype(str) == cod_limpo) | 
+                (st.session_state.df_base['GTIN'].astype(str) == cod_limpo)
+            ]
+            if not df_encontrado.empty:
+                desc_padrao = str(df_encontrado.iloc[0]['Descrição'])
+                gtin_padrao = str(df_encontrado.iloc[0]['GTIN']) if pd.notna(df_encontrado.iloc[0]['GTIN']) else cod_limpo
+                setor_padrao = str(df_encontrado.iloc[0]['Setor de Compra']) if pd.notna(df_encontrado.iloc[0]['Setor de Compra']) else "Mercearia"
+                preco_padrao = float(df_encontrado.iloc[0]['Preço_Sistema']) if pd.notna(df_encontrado.iloc[0]['Preço_Sistema']) else 0.0
+                st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
+        
+        with st.form("modal_add"):
+            c_interno = st.text_input("Código Interno:", value=str(codigo_manual).strip().replace('.0', '') if codigo_manual else "")
+            c_gtin = st.text_input("GTIN (Código de Barras):", value=str(gtin_padrao).strip().replace('.0', '') if gtin_padrao else (str(codigo_manual).strip().replace('.0', '') if codigo_manual else ""))
+            descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)
+            
+            val_manual = st.date_input("2️⃣ Nova Data de Validade")
+            q_manual = st.number_input("Quantidade Real (Un)", min_value=0, step=1)
+            p_manual = st.number_input("Preço Atual (R$)", min_value=0.0, format="%.2f", value=preco_padrao)
+            
+            setores = ["Mercearia", "Perecíveis", "Açougue", "Padaria", "FLV", "Outros"]
+            idx = setores.index(setor_padrao) if setor_padrao in setores else 0
+            setor_m = st.selectbox("Setor", setores, index=idx)
+            
+            acao_m = st.selectbox("Ação a Tomar", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"])
+            preco_reb_manual = st.number_input("Preço da Rebaixa (R$)", min_value=0.0, format="%.2f", value=0.0)
+            obs_m = st.text_area("Anotações / Observações (Opcional)")
+            
+            if st.form_submit_button("Gravar Produto na Base"):
+                if acao_m == "Rebaixa" and preco_reb_manual <= 0:
+                    st.error("⚠️ Para a ação 'Rebaixa', o preço promocional deve ser maior que zero!")
+                elif c_interno and descricao_manual:
+                    c_int_limpo = str(c_interno).strip().replace('.0', '')
+                    chave = f"{c_int_limpo}_{val_manual.strftime('%Y-%m-%d')}"
+                    
+                    df_b = st.session_state.df_base.set_index('Chave_ID') if 'Chave_ID' in st.session_state.df_base.columns else st.session_state.df_base
+                    
+                    if q_manual == 0 or acao_m in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"]:
+                        status_m = "Resolvido"
+                        if q_manual == 0: acao_m = "Resolvido - Sem Estoque Físico"
+                    else:
+                        status_m = "Conferido"
+                        
+                    data_conf_m = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                    op_nome = st.session_state.get('operador_nome', 'Não Identificado')
+                    log_msg = f"[{data_conf_m}] Criado/Auditado por {op_nome} - Ação: {acao_m}"
+
+                    novo_item = {
+                        'Chave_ID': chave, 'Código Interno': c_int_limpo, 'GTIN': str(c_gtin).strip().replace('.0', '') if c_gtin else c_int_limpo,
+                        'Descrição': descricao_manual, 'Data de Validade': val_manual.strftime('%Y-%m-%d'),
+                        'Qtde. Validade': 1, 'Qtde_Real_Vencer': q_manual,
+                        'Preço_Sistema': p_manual, 'Setor de Compra': setor_m, 
+                        'Acao_Tomada': acao_m, 'Preco_Rebaixa': preco_reb_manual,
+                        'Status': status_m, 'Origem': 'Manual', 'Data_Conferencia': data_conf_m, 'Observacoes': obs_m, 'Operador': op_nome, 'Historico_Log': log_msg
+                    }
+                    
+                    df_nova_linha = pd.DataFrame([novo_item]).set_index('Chave_ID')
+                    
+                    if chave in df_b.index:
+                        df_b.update(df_nova_linha)
+                        st.session_state.df_base = df_b.reset_index()
+                        st.success("⚠️ Este lote já existia na base. Dados atualizados com sucesso!")
+                    else:
+                        df_b = pd.concat([df_b, df_nova_linha]).reset_index()
+                        st.session_state.df_base = df_b
+                        st.success("✅ Produto adicionado e encaminhado para conferência!")
+                        
+                    salvar_base()
+                    st.session_state.mostrar_add = False 
+                    st.rerun()
+                else:
+                    st.error("Preencha o Código Interno e a Descrição.")
+                    
+        st.divider()
+
+    # --- LISTAGEM DOS CARDS AGRUPADOS POR CÓDIGO (COM PAGINAÇÃO) ---
+    if not dados_filtrados.empty:
+        if busca:
+            busca_limpa = str(busca).strip().replace('.0', '')
+            dados_filtrados = dados_filtrados[
+                (dados_filtrados['Código Interno'].astype(str) == busca_limpa) | 
+                (dados_filtrados['GTIN'].astype(str) == busca_limpa) |
+                (dados_filtrados['Descrição'].astype(str).str.contains(busca_limpa, case=False))
+            ]
+
+        codigos_unicos = dados_filtrados['Código Interno'].unique()
+        total_produtos = len(codigos_unicos)
+        
+        itens_por_pagina = 20
+        total_paginas = max(1, (total_produtos + itens_por_pagina - 1) // itens_por_pagina)
+        
+        col_pag1, col_pag2, col_pag3 = st.columns([2, 3, 2])
+        with col_pag2:
+            pagina_atual = st.number_input("Página", min_value=1, max_value=total_paginas, value=1, step=1, label_visibility="collapsed")
+        
+        st.caption(f"Mostrando página {pagina_atual} de {total_paginas} (Total de produtos: {total_produtos})")
+        
+        inicio_idx = (pagina_atual - 1) * itens_por_pagina
+        fim_idx = inicio_idx + itens_por_pagina
+        codigos_pagina = codigos_unicos[inicio_idx:fim_idx]
+
+        for cod in codigos_pagina:
+            lotes_produto = dados_filtrados[dados_filtrados['Código Interno'].astype(str) == str(cod)]
+            primeiro_item = lotes_produto.iloc[0]
+            
+            status_principal = primeiro_item['Status']
+            
+            if status_principal == 'Pendente':
+                data_val_prim = pd.to_datetime(primeiro_item['Data de Validade']).normalize()
+                if total_lotes == 1 and data_val_prim < hoje:
+                    card_bg, text_color = "#e74c3c", "white" # Vermelho para Vencido
+                else:
+                    card_bg, text_color = "#e67e22", "white" # Laranja padrão
+            elif status_principal == 'Conferido': 
+                card_bg, text_color = "#9b59b6", "white"
+            else: 
+                card_bg, text_color = "#2ecc71", "white"
+
+            total_lotes = len(lotes_produto)
+            badge_lotes = f"📦 **{total_lotes} lote(s) com datas diferentes**" if total_lotes > 1 else f"📅 Vencimento: {pd.to_datetime(primeiro_item['Data de Validade']).strftime('%d/%m/%Y')}"
+
+            if total_lotes == 1:
+                item_u = lotes_produto.iloc[0]
+                q_sis = int(item_u['Qtde. Validade']) if pd.notna(item_u['Qtde. Validade']) else 0
+                if pd.notna(item_u.get('Qtde_Real_Vencer')) and str(item_u.get('Qtde_Real_Vencer')).strip() != "":
+                    q_real_txt = f"{int(float(item_u['Qtde_Real_Vencer']))} un"
+                else:
+                    q_real_txt = "Pendente contagem física"
+                info_qtd_card = f"📊 Qtd Sistema: {q_sis} un | 🔍 Qtd Real: {q_real_txt}"
+            else:
+                info_qtd_card = f"📦 Múltiplos lotes (ver detalhes abaixo)"
+
+            st.markdown(f"""
+            <div style="background-color: {card_bg}; color: {text_color}; padding: 15px; border-radius: 10px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <h4 style="margin: 0; font-size: 16px; font-weight: bold; color: {text_color};">{primeiro_item['Descrição']}</h4>
+                <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: 500;">{badge_lotes}</p>
+                <p style="margin: 3px 0 0 0; font-size: 13px; font-weight: bold; opacity: 0.95;">{info_qtd_card}</p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; opacity: 0.9;">Cód: {primeiro_item['Código Interno']} | Setor: {primeiro_item['Setor de Compra']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            with st.expander(f"🔍 Gerenciar Lotes / Validades ({total_lotes}) para: {primeiro_item['Descrição'][:30]}..."):
+                for _, item in lotes_produto.iterrows():
+                    qtd_sistema = int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0
+                    
+                    if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "":
+                        qtd_real_str = f"<b>{int(float(item['Qtde_Real_Vencer']))} un</b>"
+                    else:
+                        qtd_real_str = "<span style='color: #d9534f; font-weight: bold;'>Pendente contagem física</span>"
+
+                    st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}**")
+                    st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)
+                    
+                    if pd.notna(item.get('Data_Conferencia')) and item.get('Data_Conferencia'):
+                        op_reg = item['Operador'] if pd.notna(item.get('Operador')) else 'Não Identificado'
+                        st.caption(f"✅ Auditado por: {op_reg} em {item['Data_Conferencia']} | Ação: {item['Acao_Tomada']}")
+                        
+                    if pd.notna(item.get('Historico_Log')) and str(item.get('Historico_Log')).strip() != "":
+                        with st.expander("📜 Ver trilha de auditoria (Histórico)"):
+                            st.text(item['Historico_Log'])
+
+                    if st.session_state.funil_atual != "3️⃣ Resolvidos":
+                        with st.form(key=f"form_auditar_{item['Chave_ID']}"):
+                            qt_real = st.number_input("Quantidade Real", value=int(item['Qtde_Real_Vencer']) if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "" else int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
+                            acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"], key=f"ac_{item['Chave_ID']}")
+                            preco_reb = st.number_input("Preço da Rebaixa (R$)", value=float(item['Preco_Rebaixa']) if pd.notna(item.get('Preco_Rebaixa')) else 0.0, key=f"p_{item['Chave_ID']}")
+                            obs_audit = st.text_area("Anotações / Observações (Opcional)", key=f"ob_{item['Chave_ID']}")
+                            foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'], key=f"ft_{item['Chave_ID']}")
+                            
+                            if st.form_submit_button(f"Confirmar Lote {item['Data de Validade']}"):
+                                if acao == "Rebaixa" and preco_reb <= 0:
+                                    st.error("⚠️ Atenção: Para a ação 'Rebaixa', o preço promocional deve ser preenchido e maior que zero!")
+                                else:
+                                    if qt_real == 0:
+                                        acao = "Resolvido - Sem Estoque Físico"
+                                        preco_reb = 0.0
+
+                                    idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                                    
+                                    data_agora = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                                    op_nome = st.session_state.get('operador_nome', 'Não Identificado')
+                                    novo_log = f"[{data_agora}] Auditado por {op_nome} - Ação: {acao} (Qtd: {qt_real})"
+                                    
+                                    log_antigo = str(item['Historico_Log']) if pd.notna(item.get('Historico_Log')) else ""
+                                    log_atualizado = f"{log_antigo}\n{novo_log}" if log_antigo else novo_log
+
+                                    st.session_state.df_base.at[idx, 'Qtde_Real_Vencer'] = qt_real
+                                    st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
+                                    st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
+                                    st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
+                                    st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
+                                    st.session_state.df_base.at[idx, 'Data_Conferencia'] = data_agora
+                                    st.session_state.df_base.at[idx, 'Operador'] = op_nome
+                                    st.session_state.df_base.at[idx, 'Historico_Log'] = log_atualizado
+                                    
+                                    salvar_base()
+                                    st.success(f"Lote {item['Data de Validade']} atualizado com sucesso!")
+                                    st.rerun()
+                    else:
+                        if st.button(f"↩️ Reativar Lote {item['Data de Validade']}", key=f"reativar_{item['Chave_ID']}", use_container_width=True):
+                            idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
+                            
+                            data_agora = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y %H:%M')
+                            op_nome = st.session_state.get('operador_nome', 'Não Identificado')
+                            novo_log = f"[{data_agora}] Reativado por {op_nome} (Voltou para Pendente)"
+                            log_antigo = str(item['Historico_Log']) if pd.notna(item.get('Historico_Log')) else ""
+                            log_atualizado = f"{log_antigo}\n{novo_log}" if log_antigo else novo_log
+
+                            st.session_state.df_base.at[idx, 'Status'] = 'Pendente'
+                            st.session_state.df_base.at[idx, 'Acao_Tomada'] = None
+                            st.session_state.df_base.at[idx, 'Data_Conferencia'] = None
+                            st.session_state.df_base.at[idx, 'Operador'] = None
+                            st.session_state.df_base.at[idx, 'Historico_Log'] = log_atualizado
+                            salvar_base()
+                            st.rerun()
+    else:
+        st.info("Nenhum produto encontrado nesta categoria de filtros.")
+else:
+    st.info("A base de dados encontra-se vazia.")

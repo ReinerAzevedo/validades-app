@@ -79,15 +79,69 @@ def salvar_base():
             st.session_state.df_base[col] = st.session_state.df_base[col].astype(object)
     st.session_state.df_base.to_csv(CAMINHO_BASE, index=False)
 
+def atualizar_base_cumulativa(arquivos_upados):
+    try:
+        lista_dfs = []
+        for arq in arquivos_upados:
+            df = pd.read_excel(arq, header=27)
+            df = df[COLUNAS_ERP].copy()
+            df.dropna(subset=['Código Interno', 'Data de Validade'], inplace=True)
+            df['Código Interno'] = pd.to_numeric(df['Código Interno'], errors='coerce').fillna(0).astype(int).astype(str)
+            df['Data de Validade'] = pd.to_datetime(df['Data de Validade']).dt.strftime('%Y-%m-%d')
+            df['Chave_ID'] = df['Código Interno'] + "_" + df['Data de Validade']
+            lista_dfs.append(df)
+            
+        if not lista_dfs:
+            return False
+
+        df_novo = pd.concat(lista_dfs, ignore_index=True).drop_duplicates(subset=['Chave_ID'], keep='first')
+        df_base = st.session_state.df_base.copy()
+        
+        if 'Chave_ID' in df_base.columns:
+            df_base.set_index('Chave_ID', inplace=True)
+        df_novo.set_index('Chave_ID', inplace=True)
+        
+        for col in df_novo.columns:
+            if col in df_base.columns:
+                df_base[col] = df_base[col].astype(object)
+                df_novo[col] = df_novo[col].astype(object)
+                
+        df_base.update(df_novo)
+        
+        itens_novos = df_novo[~df_novo.index.isin(df_base.index)].copy()
+        for col in COLUNAS_APP:
+            if col not in itens_novos.columns and col != 'Chave_ID':
+                itens_novos[col] = None
+                
+        if not itens_novos.empty:
+            itens_novos['Status'] = 'Pendente'
+            itens_novos['Origem'] = 'Planilha'
+        
+        df_atualizado = pd.concat([df_base, itens_novos]).reset_index()
+        
+        for col in COLUNAS_APP:
+            if col in df_atualizado.columns:
+                df_atualizado[col] = df_atualizado[col].astype(object)
+                
+        st.session_state.df_base = df_atualizado
+        salvar_base()
+        return True
+    except Exception as e:
+        st.error(f"Erro no processamento: {e}")
+        return False
+
 if 'filtro_atual' not in st.session_state: st.session_state.filtro_atual = "Todos"
 if 'funil_atual' not in st.session_state: st.session_state.funil_atual = "1️⃣ Pendentes"
 if 'mostrar_add' not in st.session_state: st.session_state.mostrar_add = False
 
-# --- TOP BAR: UPLOAD DO ERP ---
+# --- TOP BAR: UPLOAD DO ERP (RESTAURADO E ATIVO) ---
 with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
     arquivos = st.file_uploader("Relatórios Excel", accept_multiple_files=True)
     if arquivos and st.button("Carregar Dados"):
-        st.success("Função de upload ativada na retaguarda.")
+        with st.spinner("Consolidando dados do ERP..."):
+            if atualizar_base_cumulativa(arquivos):
+                st.success("Base de dados atualizada e integrada com sucesso!")
+                st.rerun()
 
 # --- TOP BAR: RELATÓRIOS E EXPORTAÇÃO DIÁRIA ---
 with st.expander("📥 Relatórios Diários (Exportar)"):
@@ -139,10 +193,9 @@ with st.expander("📥 Relatórios Diários (Exportar)"):
 # --- TOP BAR: PAINEL ADMINISTRATIVO (PROTEGIDO POR SENHA) ---
 with st.expander("🔒 Painel Administrativo (Excluir Registros / Limpar Base)"):
     senha_adm = st.text_input("Digite a senha de administrador:", type="password")
-    if senha_adm == "1010": # Senha padrão configurada (pode alterar aqui)
+    if senha_adm == "1010":
         st.success("🔓 Acesso Autorizado!")
         
-        # Opção 1: Limpar Base Inteira
         if st.button("🗑️ Apagar Toda a Base de Dados", type="primary"):
             st.session_state.df_base = pd.DataFrame(columns=COLUNAS_ERP + COLUNAS_APP)
             if os.path.exists(CAMINHO_BASE):
@@ -152,7 +205,6 @@ with st.expander("🔒 Painel Administrativo (Excluir Registros / Limpar Base)")
             
         st.divider()
         
-        # Opção 2: Apagar Registros Específicos
         if not st.session_state.df_base.empty:
             st.write("Excluir item específico por Chave_ID:")
             item_para_apagar = st.selectbox("Selecione o item:", st.session_state.df_base['Chave_ID'].astype(str) + " | " + st.session_state.df_base['Descrição'].astype(str))
@@ -247,7 +299,7 @@ if not df_full.empty:
             st.session_state.mostrar_add = not st.session_state.mostrar_add
             st.rerun()
 
-    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO (Apenas Código, GTIN e Descrição internamente) ---
+    # --- BLOCO DE ADIÇÃO MANUAL OTIMIZADO ---
     if st.session_state.mostrar_add:
         st.markdown("### ➕ Adicionar Nova Validade ou Produto")
         st.info("💡 **Dica:** Bipe o código. Se o produto já existir, a descrição e o GTIN serão preenchidos automaticamente.")
@@ -269,7 +321,6 @@ if not df_full.empty:
                 st.success(f"✅ Produto reconhecido: **{desc_padrao}**")
         
         with st.form("modal_add"):
-            # Campos essenciais solicitados internamente
             c_interno = st.text_input("Código Interno:", value=codigo_manual.strip() if codigo_manual else "")
             c_gtin = st.text_input("GTIN (Código de Barras):", value=gtin_padrao if gtin_padrao else (codigo_manual.strip() if codigo_manual else ""))
             descricao_manual = st.text_input("Descrição do Produto:", value=desc_padrao)

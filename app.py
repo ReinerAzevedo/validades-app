@@ -487,8 +487,9 @@ if not df_full.empty:
                 if pd.notna(item_u.get('Qtde_Real_Vencer')) and str(item_u.get('Qtde_Real_Vencer')).strip() != "":
                     q_real_txt = f"{int(float(item_u['Qtde_Real_Vencer']))} un"
                 else:
-                    q_real_txt = "Pendente contagem física"
-                info_qtd_card = f"📊 Qtd Sistema: {q_sis} un | 🔍 Qtd Real: {q_real_txt}"
+                    # DESTAQUE VISUAL PARA PENDENTE CONTAGEM FÍSICA
+                    q_real_txt = "<span style='background-color: #f1c40f; color: #000000; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⚠️ Pendente contagem física</span>"
+                info_qtd_card = f"📊 Qtd Sistema: {q_sis} un  |  🔍 Qtd Real: {q_real_txt}"
             else:
                 info_qtd_card = f"📦 Múltiplos lotes (ver detalhes abaixo)"
 
@@ -511,7 +512,7 @@ if not df_full.empty:
                     if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "":
                         qtd_real_str = f"<b>{int(float(item['Qtde_Real_Vencer']))} un</b>"
                     else:
-                        qtd_real_str = "<span style='color: #d9534f; font-weight: bold;'>Pendente contagem física</span>"
+                        qtd_real_str = "<span style='background-color: #f1c40f; color: #000000; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⚠️ Pendente contagem física</span>"
 
                     st.markdown(f"--- **Lote Validade: {pd.to_datetime(item['Data de Validade']).strftime('%d/%m/%Y')}**")
                     st.markdown(f"📊 **Qtd Sistema:** {qtd_sistema} un   |   🔍 **Qtd Real Conferida:** {qtd_real_str}", unsafe_allow_html=True)

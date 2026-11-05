@@ -162,6 +162,47 @@ with st.expander("📂 Importar Planilha do ERP (Bluesoft)"):
                 st.success("Base de dados atualizada com sucesso!")
                 st.rerun()
 
+# --- TOP BAR: PAINEL DE INDICADORES GERENCIAIS (DASHBOARD) ---
+with st.expander("📊 Painel de Indicadores Gerenciais (Dashboard)"):
+    df_dash = st.session_state.df_base.copy()
+    if not df_dash.empty:
+        df_dash['Data de Validade'] = pd.to_datetime(df_dash['Data de Validade'], errors='coerce')
+        hoje_dash = pd.to_datetime('today').normalize()
+        
+        # Métricas gerais
+        total_geral = len(df_dash)
+        total_pend = len(df_dash[df_dash['Status'] == 'Pendente'])
+        total_conf = len(df_dash[df_dash['Status'] == 'Conferido'])
+        total_resolv = len(df_dash[df_dash['Status'] == 'Resolvido'])
+        total_venc = len(df_dash[df_dash['Data de Validade'] < hoje_dash])
+        
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        c_m1.metric("📦 Total de Lotes", total_geral)
+        c_m2.metric("⏳ Pendentes", total_pend)
+        c_m3.metric("🚨 Vencidos na Base", total_venc)
+        c_m4.metric("✅ Resolvidos", total_resolv)
+        
+        st.divider()
+        
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            st.markdown("##### 📌 Status dos Lotes na Operação")
+            df_status = pd.DataFrame({
+                "Status": ["Pendentes", "Conferidos", "Resolvidos"],
+                "Quantidade": [total_pend, total_conf, total_resolv]
+            }).set_index("Status")
+            st.bar_chart(df_status)
+            
+        with col_g2:
+            st.markdown("##### 🛒 Volume por Setor de Compra")
+            if 'Setor de Compra' in df_dash.columns:
+                df_setor = df_dash['Setor de Compra'].value_counts()
+                st.bar_chart(df_setor)
+            else:
+                st.info("Sem dados de setor disponíveis.")
+    else:
+        st.info("A base de dados está vazia para gerar indicadores.")
+
 # --- TOP BAR: RELATÓRIOS E EXPORTAÇÃO DIÁRIA (COM BACKUP COMPLETO) ---
 with st.expander("📥 Relatórios Diários e Backup"):
     hoje_str = pd.Timestamp.now(tz='America/Sao_Paulo').strftime('%d/%m/%Y')
@@ -487,7 +528,6 @@ if not df_full.empty:
                 if pd.notna(item_u.get('Qtde_Real_Vencer')) and str(item_u.get('Qtde_Real_Vencer')).strip() != "":
                     q_real_txt = f"{int(float(item_u['Qtde_Real_Vencer']))} un"
                 else:
-                    # DESTAQUE VISUAL PARA PENDENTE CONTAGEM FÍSICA
                     q_real_txt = "<span style='background-color: #f1c40f; color: #000000; padding: 2px 6px; border-radius: 4px; font-weight: bold;'>⚠️ Pendente contagem física</span>"
                 info_qtd_card = f"📊 Qtd Sistema: {q_sis} un  |  🔍 Qtd Real: {q_real_txt}"
             else:
@@ -528,7 +568,7 @@ if not df_full.empty:
                     if st.session_state.funil_atual != "3️⃣ Resolvidos":
                         with st.form(key=f"form_auditar_{item['Chave_ID']}"):
                             qt_real = st.number_input("Quantidade Real", value=int(item['Qtde_Real_Vencer']) if pd.notna(item.get('Qtde_Real_Vencer')) and str(item.get('Qtde_Real_Vencer')).strip() != "" else int(item['Qtde. Validade']) if pd.notna(item['Qtde. Validade']) else 0, key=f"q_{item['Chave_ID']}")
-                            acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Estoque Físico"], key=f"ac_{item['Chave_ID']}")
+                            acao = st.selectbox("Ação Tomada", ["Rebaixa", "Descarte", "Troca", "Nenhuma - OK", "Resolvido - Sem Stock Físico"], key=f"ac_{item['Chave_ID']}")
                             preco_reb = st.number_input("Preço da Rebaixa (R$)", value=float(item['Preco_Rebaixa']) if pd.notna(item.get('Preco_Rebaixa')) else 0.0, key=f"p_{item['Chave_ID']}")
                             obs_audit = st.text_area("Anotações / Observações (Opcional)", key=f"ob_{item['Chave_ID']}")
                             foto = st.file_uploader("Foto Evidência (Opcional)", type=['jpg', 'jpeg', 'png'], key=f"ft_{item['Chave_ID']}")
@@ -538,7 +578,7 @@ if not df_full.empty:
                                     st.error("⚠️ Atenção: Para a ação 'Rebaixa', o preço promocional deve ser preenchido e maior que zero!")
                                 else:
                                     if qt_real == 0:
-                                        acao = "Resolvido - Sem Estoque Físico"
+                                        acao = "Resolvido - Sem Stock Físico"
                                         preco_reb = 0.0
 
                                     idx = st.session_state.df_base.index[st.session_state.df_base['Chave_ID'] == item['Chave_ID']].tolist()[0]
@@ -554,7 +594,7 @@ if not df_full.empty:
                                     st.session_state.df_base.at[idx, 'Acao_Tomada'] = acao
                                     st.session_state.df_base.at[idx, 'Preco_Rebaixa'] = preco_reb
                                     st.session_state.df_base.at[idx, 'Observacoes'] = obs_audit
-                                    st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Estoque Físico"] else 'Conferido'
+                                    st.session_state.df_base.at[idx, 'Status'] = 'Resolvido' if acao in ["Nenhuma - OK", "Resolvido - Sem Stock Físico"] else 'Conferido'
                                     st.session_state.df_base.at[idx, 'Data_Conferencia'] = data_agora
                                     st.session_state.df_base.at[idx, 'Operador'] = op_nome
                                     st.session_state.df_base.at[idx, 'Historico_Log'] = log_atualizado
